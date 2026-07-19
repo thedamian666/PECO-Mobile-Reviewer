@@ -53,23 +53,28 @@
         <input class="timeline-slider" id="timelineSlider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Timeline scrubber">
       </section>
 
-      <aside class="side-panel" aria-label="Angles and decisions">
-        <div class="panel-head">
+      <aside class="side-panel" aria-label="Review controls">
+        <div class="panel-head camera-review-only">
           <span>Angles</span>
           <label class="toggle-row">
             <input id="gridToggle" type="checkbox" disabled>
             <span>Grid</span>
           </label>
         </div>
-        <div class="angle-grid" id="angleGrid"></div>
-        <div class="panel-head decisions-head">
+        <div class="angle-grid camera-review-only" id="angleGrid"></div>
+        <div class="panel-head decisions-head camera-review-only">
           <span>Decisions</span>
           <div class="panel-actions">
             <button class="secondary compact" id="undoDecisionButton" type="button" disabled>Undo</button>
             <button class="secondary compact" id="redoDecisionButton" type="button" disabled>Redo</button>
           </div>
         </div>
-        <ol class="decision-list" id="decisionList"></ol>
+        <ol class="decision-list camera-review-only" id="decisionList"></ol>
+        <div class="panel-head markers-head">
+          <span>Review Notes</span>
+          <span class="marker-count" id="markerCount">0</span>
+        </div>
+        <ol class="marker-list" id="markerList" aria-label="Timecoded review notes"></ol>
       </aside>
     </main>
 
@@ -78,8 +83,8 @@
         <button class="mobile-option" id="mobileLoadPackageButton" type="button">Import</button>
         <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save State</button>
         <button class="mobile-option" id="mobileRemovePackageButton" type="button" hidden>Remove</button>
-        <button class="mobile-option" id="mobileUndoDecisionButton" type="button" disabled>Undo</button>
-        <button class="mobile-option" id="mobileRedoDecisionButton" type="button" disabled>Redo</button>
+        <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" disabled>Undo</button>
+        <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" disabled>Redo</button>
         <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
         <button class="mobile-option" id="mobileExportButton" type="button" disabled>Export</button>
       </div>
@@ -94,11 +99,11 @@
         <button class="transport" id="jumpEndButton" type="button" disabled>End</button>
       </div>
 
-      <div class="mobile-angle-preview-grid" id="mobileAnglePreviewGrid" aria-label="Camera previews"></div>
+      <div class="mobile-angle-preview-grid camera-review-only" id="mobileAnglePreviewGrid" aria-label="Camera previews"></div>
 
-      <div class="angle-buttons" id="angleButtons"></div>
+      <div class="angle-buttons camera-review-only" id="angleButtons"></div>
 
-      <div class="fine-tune-panel">
+      <div class="fine-tune-panel camera-review-only">
         <div class="boundary-row" aria-label="Cut boundary controls">
           <button class="transport" id="previousDecisionButton" type="button" disabled>Prev Cut</button>
           <button class="transport" id="nudgeLeftFiveButton" type="button" disabled>-5f</button>
@@ -110,7 +115,9 @@
         </div>
       </div>
 
-      <ol class="mobile-decision-list" id="mobileDecisionList" aria-label="Applied camera switch timeline"></ol>
+      <ol class="mobile-decision-list camera-review-only" id="mobileDecisionList" aria-label="Applied camera switch timeline"></ol>
+
+      <ol class="mobile-marker-list" id="mobileMarkerList" aria-label="Timecoded review notes"></ol>
 
       <div class="jog-row">
         <div class="jog-label" id="jogReadout">Center stop</div>
@@ -138,9 +145,16 @@
       <button class="secondary" id="clearDecisionSelectionButton" type="button">Close Menu</button>
     </div>
 
+    <div class="marker-selection-menu hidden" id="markerSelectionMenu" role="dialog" aria-live="polite" aria-label="Selected review notes">
+      <div class="selection-summary" id="markerSelectionSummary">No notes selected</div>
+      <button class="primary danger-action" id="deleteSelectedMarkersButton" type="button">Delete</button>
+      <button class="secondary" id="clearMarkerSelectionButton" type="button">Close Menu</button>
+    </div>
+
     <div class="preview-action-menu hidden" id="previewActionMenu" role="dialog" aria-live="polite" aria-label="Add review marker">
       <div class="selection-summary" id="previewActionSummary">Add marker</div>
-      <textarea id="markerNoteInput" rows="3" placeholder="Note for Damian"></textarea>
+      <div class="marker-category-buttons" id="markerCategoryButtons" role="group" aria-label="Note category"></div>
+      <textarea id="markerNoteInput" rows="3" placeholder="Optional note"></textarea>
       <div class="menu-action-row">
         <button class="primary" id="saveMarkerButton" type="button">Save Marker</button>
         <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>

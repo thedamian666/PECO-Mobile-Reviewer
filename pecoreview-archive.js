@@ -236,8 +236,12 @@
       throw new Error(`Could not read ${manifestEntry.name}: ${error.message}`);
     }
     const requestedProxies = proxyNames(project);
-    if (requestedProxies.length < 2) {
-      throw new Error("The package manifest needs at least two proxy angles.");
+    const reviewMode = String(project?.package_metadata?.review_mode || "").trim().toLowerCase();
+    const minimumProxyCount = reviewMode === "notes_only" ? 1 : 2;
+    if (requestedProxies.length < minimumProxyCount) {
+      throw new Error(reviewMode === "notes_only"
+        ? "The notes package manifest needs one proxy video."
+        : "The multicam package manifest needs at least two proxy angles.");
     }
 
     const proxyFiles = [];

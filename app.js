@@ -1,7 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
-const APP_VERSION = "0.1.12";
-const APP_VERSION_CODE = 13;
+const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
+const APP_VERSION = "0.1.13";
+const APP_VERSION_CODE = 14;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -21,6 +22,18 @@ const JOG_MAX_DRAG_PX = 180;
 const JOG_CENTER_DEADZONE_PX = 10;
 const JOG_FRAME_SCRUB_PX = 72;
 const JOG_SHUTTLE_SPEEDS = [2, 4, 8];
+const MARKER_CATEGORIES = [
+  { id: "note", label: "Edit Note", color: "#38bdf8" },
+  { id: "tighten", label: "Cut / Tighten", color: "#f59e0b" },
+  { id: "audio", label: "Audio", color: "#22d3ee" },
+  { id: "graphic", label: "Graphic / Text", color: "#f472b6" },
+  { id: "short", label: "Short / Thumbnail", color: "#fb7185" },
+  { id: "keep", label: "Keep", color: "#4ade80" }
+];
+const WRESTLING_MARKER_CATEGORIES = [
+  { id: "bad_floater", label: "Bad Floater", color: "#ef4444" },
+  { id: "hardcam_safer", label: "Hard Cam Safer", color: "#facc15" }
+];
 
 const elements = {
   projectLine: document.getElementById("projectLine"),
@@ -51,12 +64,20 @@ const elements = {
   mobileAnglePreviewGrid: document.getElementById("mobileAnglePreviewGrid"),
   decisionList: document.getElementById("decisionList"),
   mobileDecisionList: document.getElementById("mobileDecisionList"),
+  markerList: document.getElementById("markerList"),
+  mobileMarkerList: document.getElementById("mobileMarkerList"),
+  markerCount: document.getElementById("markerCount"),
   decisionSelectionMenu: document.getElementById("decisionSelectionMenu"),
   selectionSummary: document.getElementById("selectionSummary"),
   deleteSelectedDecisionsButton: document.getElementById("deleteSelectedDecisionsButton"),
   clearDecisionSelectionButton: document.getElementById("clearDecisionSelectionButton"),
+  markerSelectionMenu: document.getElementById("markerSelectionMenu"),
+  markerSelectionSummary: document.getElementById("markerSelectionSummary"),
+  deleteSelectedMarkersButton: document.getElementById("deleteSelectedMarkersButton"),
+  clearMarkerSelectionButton: document.getElementById("clearMarkerSelectionButton"),
   previewActionMenu: document.getElementById("previewActionMenu"),
   previewActionSummary: document.getElementById("previewActionSummary"),
+  markerCategoryButtons: document.getElementById("markerCategoryButtons"),
   markerNoteInput: document.getElementById("markerNoteInput"),
   saveMarkerButton: document.getElementById("saveMarkerButton"),
   closePreviewActionMenuButton: document.getElementById("closePreviewActionMenuButton"),
@@ -117,6 +138,15 @@ const state = {
   undoStack: [],
   redoStack: [],
   markers: [],
+  markerSelectionMode: false,
+  selectedMarkerIds: new Set(),
+  markerLongPress: null,
+  suppressMarkerClickId: null,
+  markerListAutoFollow: true,
+  markerListProgrammaticScroll: false,
+  markerListScrollTimer: 0,
+  lastFollowedMarkerId: null,
+  selectedMarkerCategory: "note",
   previewActionFrame: null,
   programVideos: new Map(),
   audioMasterAngleId: "",
@@ -164,6 +194,8 @@ elements.mobileSaveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileExportButton.addEventListener("click", exportCuts);
 elements.deleteSelectedDecisionsButton.addEventListener("click", deleteSelectedDecisionFrames);
 elements.clearDecisionSelectionButton.addEventListener("click", () => exitDecisionSelection({ status: "Selection cleared." }));
+elements.deleteSelectedMarkersButton.addEventListener("click", deleteSelectedMarkers);
+elements.clearMarkerSelectionButton.addEventListener("click", () => exitMarkerSelection({ status: "Note selection closed." }));
 elements.saveMarkerButton.addEventListener("click", savePreviewMarker);
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
 elements.reviewerInput.addEventListener("change", saveReviewer);
@@ -211,6 +243,12 @@ for (const list of [elements.decisionList, elements.mobileDecisionList]) {
   list.addEventListener("wheel", disableDecisionListAutoFollow, { passive: true });
   list.addEventListener("touchstart", disableDecisionListAutoFollow, { passive: true });
   list.addEventListener("pointerdown", disableDecisionListAutoFollow, { passive: true });
+}
+for (const list of [elements.markerList, elements.mobileMarkerList]) {
+  list.addEventListener("scroll", handleMarkerListManualScroll, { passive: true });
+  list.addEventListener("wheel", disableMarkerListAutoFollow, { passive: true });
+  list.addEventListener("touchstart", disableMarkerListAutoFollow, { passive: true });
+  list.addEventListener("pointerdown", disableMarkerListAutoFollow, { passive: true });
 }
 window.addEventListener("keydown", handleKeydown);
 
@@ -424,12 +462,23 @@ function resetProject(options = {}) {
   state.undoStack = [];
   state.redoStack = [];
   state.markers = [];
+  state.markerSelectionMode = false;
+  state.selectedMarkerIds.clear();
+  state.markerLongPress = null;
+  state.suppressMarkerClickId = null;
+  state.markerListAutoFollow = true;
+  state.markerListProgrammaticScroll = false;
+  state.lastFollowedMarkerId = null;
+  state.selectedMarkerCategory = "note";
+  clearTimeout(state.markerListScrollTimer);
   state.previewActionFrame = null;
   state.tapGesture.lastTap = null;
   state.suppressViewerTap = false;
   clearViewerLongPress();
   clearAnglePreviewSwipe();
   elements.previewActionMenu.classList.add("hidden");
+  elements.markerSelectionMenu.classList.add("hidden");
+  document.body.classList.remove("notes-only-mode");
   clearProgramVideos();
   clearAudioMaster();
   clearPreviewVideos();
@@ -472,6 +521,7 @@ function loadProjectManifest(raw, options = {}) {
   state.visibleAngleId = state.activeAngleId;
   elements.gridToggle.checked = project.angles.length <= 4;
   loadInitialCameraChanges(project);
+  loadInitialReviewMarkers(project);
   const restored = restoreProjectState(project);
   ensureProgramVideos();
   ensureAudioMaster();
@@ -521,6 +571,12 @@ function normalizeProject(raw) {
     };
   });
   const initialCameraChanges = normalizeInitialCameraChanges(raw, angles, durationFrames);
+  const initialReviewMarkers = normalizeInitialReviewMarkers(raw, durationFrames);
+  const packageMetadata = raw.package_metadata && typeof raw.package_metadata === "object"
+    ? cloneJsonValue(raw.package_metadata)
+    : {};
+  const requestedReviewMode = String(packageMetadata.review_mode || raw.review_mode || "").trim().toLowerCase();
+  const reviewMode = requestedReviewMode || (angles.length === 1 ? "notes_only" : "multicam_notes");
   const requestedAudioMasterId = String(
     raw.audio_master_angle_id
       || raw.package_metadata?.audio_master_angle_id
@@ -544,8 +600,41 @@ function normalizeProject(raw) {
     timelineStartFrame: parseTimecodeToFrames(String(raw.timeline_start_timecode || "00:00:00:00"), fps),
     angles,
     audioMasterAngleId,
-    initialCameraChanges
+    initialCameraChanges,
+    initialReviewMarkers,
+    packageMetadata,
+    reviewMode
   };
+}
+
+function normalizeInitialReviewMarkers(raw, durationFrames) {
+  const rows = Array.isArray(raw.initial_review_markers)
+    ? raw.initial_review_markers
+    : Array.isArray(raw.review_markers)
+      ? raw.review_markers
+      : [];
+  const markers = [];
+  for (const [index, row] of rows.entries()) {
+    if (!row || typeof row !== "object") {
+      continue;
+    }
+    const frame = Math.round(Number(row.timeline_frame ?? row.frame ?? -1));
+    if (!Number.isFinite(frame) || frame < 0 || frame >= durationFrames) {
+      continue;
+    }
+    const category = markerCategoryById(row.category)?.id || "note";
+    markers.push({
+      id: String(row.marker_id || row.id || `initial_marker_${index + 1}`),
+      frame,
+      category,
+      label: String(row.label || "").trim(),
+      color: String(row.color || markerCategoryById(category).color),
+      note: String(row.note || row.message || row.description || "").trim(),
+      createdAt: String(row.created_at || row.createdAt || new Date().toISOString()),
+      source: String(row.source || "peco_package_marker")
+    });
+  }
+  return markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
 }
 
 function normalizeInitialCameraChanges(raw, angles, durationFrames) {
@@ -600,6 +689,10 @@ function loadInitialCameraChanges(project) {
   state.decisions = [];
   state.undoStack = [];
   state.redoStack = [];
+  if (!supportsCameraDecisions(project)) {
+    state.selectedDecisionFrame = null;
+    return;
+  }
   const rows = Array.isArray(project.initialCameraChanges) ? project.initialCameraChanges : [];
   if (!rows.length && state.activeAngleId) {
     recordDecision(state.activeAngleId, { frame: 0, force: true, skipAutosave: true, trackHistory: false });
@@ -617,6 +710,12 @@ function loadInitialCameraChanges(project) {
   }
 }
 
+function loadInitialReviewMarkers(project) {
+  state.markers = (Array.isArray(project.initialReviewMarkers) ? project.initialReviewMarkers : [])
+    .map(marker => ({ ...marker }))
+    .sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+}
+
 function validateProject(project) {
   const errors = [];
   if (!Number.isFinite(project.fps) || project.fps <= 0) {
@@ -625,8 +724,10 @@ function validateProject(project) {
   if (!Number.isFinite(project.durationFrames) || project.durationFrames <= 0) {
     errors.push("Project duration must be positive.");
   }
-  if (project.angles.length < 2) {
-    errors.push("MVP package needs at least two angles.");
+  if (!project.angles.length) {
+    errors.push("Review package needs at least one proxy video.");
+  } else if (project.reviewMode !== "notes_only" && project.angles.length < 2) {
+    errors.push("Multicam review packages need at least two angles.");
   }
   for (const angle of project.angles) {
     if (!angle.proxyFilename) {
@@ -691,21 +792,32 @@ function normalizePathKey(value) {
 }
 
 function renderAll() {
+  renderReviewMode();
   renderProjectLine();
   renderTransport();
   renderBoundaryControls();
   renderAngles();
   renderDecisionList();
+  renderMarkerList();
   renderTimeline();
 }
 
 function renderDecisionEditState() {
+  renderReviewMode();
   renderProjectLine();
   renderTransport();
   renderBoundaryControls();
   renderDecisionList();
+  renderMarkerList();
   renderTimeline();
   updateAngleActiveState();
+}
+
+function renderReviewMode() {
+  const notesOnly = state.project?.reviewMode === "notes_only";
+  document.body.classList.toggle("notes-only-mode", Boolean(notesOnly));
+  elements.exportButton.textContent = notesOnly ? "Export Notes" : "Export Decisions";
+  elements.mobileExportButton.textContent = notesOnly ? "Export Notes" : "Export";
 }
 
 function renderProjectLine() {
@@ -752,10 +864,11 @@ function renderTransport() {
   ]) {
     button.disabled = !loaded || state.redoStack.length === 0;
   }
-  elements.saveServerButton.hidden = !state.server.available;
-  elements.saveServerButton.disabled = !loaded || !state.server.available;
-  elements.mobileSaveServerButton.hidden = !state.server.available;
-  elements.mobileSaveServerButton.disabled = !loaded || !state.server.available;
+  const serverSaveAvailable = state.server.available && supportsCameraDecisions();
+  elements.saveServerButton.hidden = !serverSaveAvailable;
+  elements.saveServerButton.disabled = !loaded || !serverSaveAvailable;
+  elements.mobileSaveServerButton.hidden = !serverSaveAvailable;
+  elements.mobileSaveServerButton.disabled = !loaded || !serverSaveAvailable;
   elements.mobileExportButton.disabled = !loaded;
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
@@ -1111,6 +1224,262 @@ function renderSelectionMenu() {
   elements.deleteSelectedDecisionsButton.disabled = false;
 }
 
+function markerCategoriesForProject() {
+  const rows = [...MARKER_CATEGORIES];
+  const metadata = state.project?.packageMetadata || {};
+  const projectText = `${state.project?.name || ""} ${metadata.workflow || ""} ${metadata.source_multicam_group_name || ""}`;
+  if (/wrestl|multicam/i.test(projectText) || supportsCameraDecisions()) {
+    rows.push(...WRESTLING_MARKER_CATEGORIES);
+  }
+  return rows;
+}
+
+function markerCategoryById(categoryId) {
+  return [...MARKER_CATEGORIES, ...WRESTLING_MARKER_CATEGORIES]
+    .find(category => category.id === String(categoryId || "").trim().toLowerCase()) || MARKER_CATEGORIES[0];
+}
+
+function renderMarkerCategoryButtons() {
+  elements.markerCategoryButtons.innerHTML = "";
+  for (const category of markerCategoriesForProject()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "marker-category-button";
+    button.dataset.category = category.id;
+    button.textContent = category.label;
+    button.style.setProperty("--marker-color", category.color);
+    button.classList.toggle("selected", category.id === state.selectedMarkerCategory);
+    button.addEventListener("click", () => {
+      state.selectedMarkerCategory = category.id;
+      renderMarkerCategoryButtons();
+    });
+    elements.markerCategoryButtons.appendChild(button);
+  }
+}
+
+function renderMarkerList() {
+  renderMarkerListInto(elements.markerList);
+  renderMarkerListInto(elements.mobileMarkerList);
+  elements.markerCount.textContent = String(state.markers.length);
+  renderMarkerSelectionMenu();
+  updateMarkerListActiveState({ force: true, follow: false });
+}
+
+function renderMarkerListInto(list) {
+  if (!list) {
+    return;
+  }
+  list.innerHTML = "";
+  if (!state.project) {
+    return;
+  }
+  for (const marker of state.markers) {
+    const category = markerCategoryById(marker.category);
+    const li = document.createElement("li");
+    li.dataset.markerId = marker.id;
+    li.dataset.frame = String(marker.frame);
+    li.style.setProperty("--marker-color", marker.color || category.color);
+    li.classList.toggle("multi-selected", state.selectedMarkerIds.has(marker.id));
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "marker-button";
+    button.innerHTML = "<strong></strong><span class=\"marker-category-label\"></span><span class=\"marker-note-label\"></span>";
+    button.querySelector("strong").textContent = framesToTimecode(marker.frame, state.project.fps);
+    button.querySelector(".marker-category-label").textContent = category.label;
+    button.querySelector(".marker-note-label").textContent = marker.note || marker.label || "No text";
+    button.addEventListener("click", event => handleMarkerTap(event, marker.id));
+    button.addEventListener("pointerdown", event => startMarkerLongPress(event, marker.id));
+    button.addEventListener("contextmenu", event => event.preventDefault());
+    li.appendChild(button);
+    list.appendChild(li);
+  }
+}
+
+function renderMarkerSelectionMenu() {
+  const count = state.selectedMarkerIds.size;
+  const visible = state.markerSelectionMode && count > 0;
+  elements.markerSelectionMenu.classList.toggle("hidden", !visible);
+  elements.markerSelectionSummary.textContent = visible
+    ? `${count} note${count === 1 ? "" : "s"} selected`
+    : "No notes selected";
+  elements.deleteSelectedMarkersButton.disabled = !visible;
+}
+
+function activeMarkerAtFrame(frame = state.timelineFrame) {
+  let active = null;
+  for (const marker of state.markers) {
+    if (marker.frame > frame) {
+      break;
+    }
+    active = marker;
+  }
+  return active;
+}
+
+function handleMarkerTap(event, markerId) {
+  if (state.suppressMarkerClickId === markerId) {
+    state.suppressMarkerClickId = null;
+    event.preventDefault();
+    return;
+  }
+  if (state.markerSelectionMode) {
+    event.preventDefault();
+    toggleMarkerSelection(markerId);
+    return;
+  }
+  const marker = state.markers.find(item => item.id === markerId);
+  if (!marker) {
+    return;
+  }
+  pausePlayback({ silent: true });
+  setTimelineFrame(marker.frame, { syncVideos: true, persist: true });
+  setStatus(`${markerCategoryById(marker.category).label} at ${framesToTimecode((state.project.timelineStartFrame || 0) + marker.frame, state.project.fps)}.`);
+}
+
+function startMarkerLongPress(event, markerId) {
+  if (!isReady() || event.button > 0) {
+    return;
+  }
+  clearMarkerLongPress();
+  const gesture = {
+    pointerId: event.pointerId,
+    markerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    fired: false,
+    timer: 0
+  };
+  gesture.timer = setTimeout(() => {
+    gesture.fired = true;
+    state.suppressMarkerClickId = markerId;
+    enterMarkerSelection(markerId);
+  }, 560);
+  state.markerLongPress = gesture;
+  window.addEventListener("pointermove", moveMarkerLongPress);
+  window.addEventListener("pointerup", endMarkerLongPress, { once: true });
+  window.addEventListener("pointercancel", endMarkerLongPress, { once: true });
+}
+
+function moveMarkerLongPress(event) {
+  const gesture = state.markerLongPress;
+  if (!gesture || event.pointerId !== gesture.pointerId) {
+    return;
+  }
+  if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 12) {
+    clearMarkerLongPress();
+  }
+}
+
+function endMarkerLongPress(event) {
+  const gesture = state.markerLongPress;
+  if (gesture && event.pointerId === gesture.pointerId && gesture.fired) {
+    state.suppressMarkerClickId = gesture.markerId;
+  }
+  clearMarkerLongPress();
+}
+
+function clearMarkerLongPress() {
+  if (state.markerLongPress?.timer) {
+    clearTimeout(state.markerLongPress.timer);
+  }
+  state.markerLongPress = null;
+  window.removeEventListener("pointermove", moveMarkerLongPress);
+  window.removeEventListener("pointerup", endMarkerLongPress);
+  window.removeEventListener("pointercancel", endMarkerLongPress);
+}
+
+function enterMarkerSelection(markerId) {
+  if (!state.markers.some(marker => marker.id === markerId)) {
+    return;
+  }
+  pausePlayback({ silent: true });
+  exitDecisionSelection();
+  state.markerSelectionMode = true;
+  state.selectedMarkerIds.add(markerId);
+  renderAll();
+  setStatus("Note selection mode. Tap more notes to select or deselect them.");
+}
+
+function toggleMarkerSelection(markerId) {
+  if (state.selectedMarkerIds.has(markerId)) {
+    state.selectedMarkerIds.delete(markerId);
+  } else if (state.markers.some(marker => marker.id === markerId)) {
+    state.selectedMarkerIds.add(markerId);
+  }
+  if (!state.selectedMarkerIds.size) {
+    exitMarkerSelection({ status: "Note selection cleared." });
+  } else {
+    renderAll();
+  }
+}
+
+function exitMarkerSelection(options = {}) {
+  clearMarkerSelectionState();
+  renderAll();
+  if (options.status) {
+    setStatus(options.status);
+  }
+}
+
+function clearMarkerSelectionState() {
+  clearMarkerLongPress();
+  state.markerSelectionMode = false;
+  state.selectedMarkerIds.clear();
+  state.suppressMarkerClickId = null;
+}
+
+function deleteSelectedMarkers() {
+  const selected = new Set(state.selectedMarkerIds);
+  const removedCount = state.markers.filter(marker => selected.has(marker.id)).length;
+  state.markers = state.markers.filter(marker => !selected.has(marker.id));
+  state.markerSelectionMode = false;
+  state.selectedMarkerIds.clear();
+  state.suppressMarkerClickId = null;
+  renderAll();
+  scheduleProjectStateAutosave();
+  setStatus(`Deleted ${removedCount} selected note${removedCount === 1 ? "" : "s"}.`);
+}
+
+function handleMarkerListManualScroll() {
+  if (!state.markerListProgrammaticScroll) {
+    state.markerListAutoFollow = false;
+  }
+}
+
+function disableMarkerListAutoFollow() {
+  state.markerListAutoFollow = false;
+  state.markerListProgrammaticScroll = false;
+  clearTimeout(state.markerListScrollTimer);
+}
+
+function enableMarkerListAutoFollow(options = {}) {
+  state.markerListAutoFollow = true;
+  state.lastFollowedMarkerId = null;
+  updateMarkerListActiveState({ force: true, follow: options.center !== false });
+}
+
+function updateMarkerListActiveState(options = {}) {
+  const active = activeMarkerAtFrame();
+  for (const list of [elements.markerList, elements.mobileMarkerList]) {
+    for (const item of list.querySelectorAll("li[data-marker-id]")) {
+      item.classList.toggle("current", item.dataset.markerId === active?.id);
+    }
+  }
+  if (!options.follow || !active || (!options.force && state.lastFollowedMarkerId === active.id)) {
+    return;
+  }
+  state.lastFollowedMarkerId = active.id;
+  state.markerListProgrammaticScroll = true;
+  clearTimeout(state.markerListScrollTimer);
+  for (const list of [elements.markerList, elements.mobileMarkerList]) {
+    const item = [...list.querySelectorAll("li[data-marker-id]")].find(row => row.dataset.markerId === active.id);
+    item?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }
+  state.markerListScrollTimer = setTimeout(() => {
+    state.markerListProgrammaticScroll = false;
+  }, 450);
+}
+
 function handleDecisionListManualScroll() {
   if (state.decisionListProgrammaticScroll) {
     return;
@@ -1356,7 +1725,7 @@ function compactDecisions() {
     }
     compacted.push(row);
   }
-  if (state.project && compacted[0]?.frame !== 0 && state.project.angles[0]) {
+  if (supportsCameraDecisions() && compacted[0]?.frame !== 0 && state.project.angles[0]) {
     const angle = state.project.angles[0];
     compacted.unshift({
       frame: 0,
@@ -1466,6 +1835,7 @@ function enterDecisionSelection(frame) {
     return;
   }
   pausePlayback({ silent: true });
+  clearMarkerSelectionState();
   state.decisionSelectionMode = true;
   state.selectedDecisionFrames.add(frame);
   state.selectedDecisionFrame = frame;
@@ -1671,6 +2041,10 @@ function setTimelineFrame(frame, options = {}) {
   updateDecisionListActiveState({
     follow: Boolean(options.followDecisionList ?? (state.isPlaying && state.decisionListAutoFollow)),
     force: Boolean(options.forceDecisionListFollow)
+  });
+  updateMarkerListActiveState({
+    follow: Boolean(options.followMarkerList ?? (state.isPlaying && state.markerListAutoFollow)),
+    force: Boolean(options.forceMarkerListFollow)
   });
 }
 
@@ -2036,10 +2410,16 @@ function removeCurrentCameraCut() {
 function openPreviewActionMenu(frame) {
   pausePlayback({ silent: true });
   exitDecisionSelection();
+  if (state.markerSelectionMode) {
+    state.markerSelectionMode = false;
+    state.selectedMarkerIds.clear();
+  }
   const targetFrame = clampFrame(frame);
   state.previewActionFrame = targetFrame;
+  state.selectedMarkerCategory = "note";
   elements.previewActionSummary.textContent = `Marker at ${framesToTimecode((state.project.timelineStartFrame || 0) + targetFrame, state.project.fps)}`;
   elements.markerNoteInput.value = "";
+  renderMarkerCategoryButtons();
   elements.previewActionMenu.classList.remove("hidden");
   elements.markerNoteInput.focus();
   setStatus("Add a note for this moment, then save the marker.");
@@ -2047,6 +2427,7 @@ function openPreviewActionMenu(frame) {
 
 function closePreviewActionMenu(options = {}) {
   state.previewActionFrame = null;
+  state.selectedMarkerCategory = "note";
   elements.previewActionMenu.classList.add("hidden");
   elements.markerNoteInput.value = "";
   if (options.status) {
@@ -2061,15 +2442,22 @@ function savePreviewMarker() {
   }
   const frame = clampFrame(state.previewActionFrame);
   const note = elements.markerNoteInput.value.trim();
+  const category = markerCategoryById(state.selectedMarkerCategory);
   state.markers.push({
+    id: `marker_${cryptoRandomId()}`,
     frame,
+    category: category.id,
+    label: category.label,
+    color: category.color,
     note,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    source: "peco_mobile_review"
   });
-  state.markers.sort((a, b) => a.frame - b.frame);
+  state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
   scheduleProjectStateAutosave();
   closePreviewActionMenu();
-  setStatus(`Saved marker at ${framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps)}.`);
+  renderMarkerList();
+  setStatus(`Saved ${category.label} note at ${framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps)}.`);
 }
 
 function handleViewerTap(event) {
@@ -2175,6 +2563,7 @@ function playFromCurrentFrame() {
   syncAllVideos();
   state.isPlaying = true;
   enableDecisionListAutoFollow({ center: true });
+  enableMarkerListAutoFollow({ center: true });
   playSyncedProgramVideos().then(() => {
     for (const preview of state.gridVideos.values()) {
       preview.video.play().catch(() => {});
@@ -2502,7 +2891,8 @@ async function exportCuts() {
     return;
   }
   const payload = buildCutsPayload();
-  const filename = `${safeFilename(state.project.name)}.pecocuts.json`;
+  const notesOnly = state.project.reviewMode === "notes_only";
+  const filename = `${safeFilename(state.project.name)}${notesOnly ? ".peconotes.json" : ".pecocuts.json"}`;
   const bridge = nativeBridge();
   if (bridge?.exportCuts) {
     try {
@@ -2511,7 +2901,7 @@ async function exportCuts() {
         setStatus("Export cancelled.");
         return;
       }
-      setStatus(`Exported ${payload.selected_camera_changes.length} camera decision(s). Send the .pecocuts.json file back to PECO.`);
+      setStatus(exportStatusMessage(payload, notesOnly));
       return;
     } catch (error) {
       setStatus(`Native export failed: ${error.message}`, true);
@@ -2523,7 +2913,15 @@ async function exportCuts() {
     setStatus("Export cancelled.");
     return;
   }
-  setStatus(`Exported ${payload.selected_camera_changes.length} camera decision(s). Send the .pecocuts.json file back to PECO.`);
+  setStatus(exportStatusMessage(payload, notesOnly));
+}
+
+function exportStatusMessage(payload, notesOnly) {
+  const noteCount = payload.review_markers.length;
+  if (notesOnly) {
+    return `Exported ${noteCount} review note${noteCount === 1 ? "" : "s"}. Send the .peconotes.json file back to PECO.`;
+  }
+  return `Exported ${payload.selected_camera_changes.length} camera decision(s) and ${noteCount} review note${noteCount === 1 ? "" : "s"}. Send the .pecocuts.json file back to PECO.`;
 }
 
 async function saveCutsToServer() {
@@ -2551,8 +2949,9 @@ function buildCutsPayload() {
   const project = state.project;
   const changes = compactDecisions();
   const reviewerName = elements.reviewerInput.value.trim();
+  const notesOnly = project.reviewMode === "notes_only";
   return {
-    schema: CUTS_SCHEMA,
+    schema: notesOnly ? NOTES_SCHEMA : CUTS_SCHEMA,
     project_id: project.id,
     project_name: project.name,
     fps: project.fps,
@@ -2562,6 +2961,8 @@ function buildCutsPayload() {
     reviewer: {
       name: reviewerName
     },
+    review_mode: project.reviewMode,
+    package_metadata: cloneJsonValue(project.packageMetadata || {}),
     source_clip_mapping: project.angles.map(angle => ({
       angle_id: angle.id,
       angle_index: angle.index,
@@ -2572,7 +2973,7 @@ function buildCutsPayload() {
       sync_offset_frames: angle.syncOffsetFrames,
       proxy_sync_offset_frames: angle.proxySyncOffsetFrames
     })),
-    selected_camera_changes: changes.map(decision => {
+    selected_camera_changes: (notesOnly ? [] : changes).map(decision => {
       const angle = angleById(decision.angleId);
       const sourceFrame = decision.frame + angle.syncOffsetFrames;
       return {
@@ -2589,14 +2990,27 @@ function buildCutsPayload() {
         recorded_at: decision.recordedAt
       };
     }),
-    review_markers: state.markers.map(marker => ({
-      timeline_frame: marker.frame,
-      timeline_timecode: framesToTimecode(project.timelineStartFrame + marker.frame, project.fps),
-      note: marker.note,
-      created_at: marker.createdAt
-    })),
+    review_markers: state.markers.map(marker => {
+      const sourceAngle = project.angles[0];
+      const sourceFrame = marker.frame + Number(sourceAngle?.syncOffsetFrames || 0);
+      const category = markerCategoryById(marker.category);
+      return {
+        marker_id: marker.id,
+        timeline_frame: marker.frame,
+        timeline_timecode: framesToTimecode(project.timelineStartFrame + marker.frame, project.fps),
+        category: category.id,
+        label: marker.label || category.label,
+        color: marker.color || category.color,
+        note: marker.note,
+        source_frame: sourceFrame,
+        source_timecode: framesToTimecode(Number(sourceAngle?.originalSourceStartFrame || 0) + sourceFrame, project.fps),
+        original_source_filename: sourceAngle?.originalSourceFilename || "",
+        created_at: marker.createdAt,
+        source: marker.source || "peco_mobile_review"
+      };
+    }),
     exported_at: new Date().toISOString(),
-    exported_by: "PECO Mobile Multicam"
+    exported_by: "PECO Mobile Review"
   };
 }
 
@@ -2619,8 +3033,8 @@ async function shareOrDownloadJson(filename, payload) {
   if (touchDevice && navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({
-        title: `${state.project.name} PECO decisions`,
-        text: "PECO camera decisions",
+        title: `${state.project.name} PECO review`,
+        text: state.project.reviewMode === "notes_only" ? "PECO review notes" : "PECO camera decisions and review notes",
         files: [file]
       });
       return { shared: true, cancelled: false };
@@ -2635,10 +3049,17 @@ async function shareOrDownloadJson(filename, payload) {
 }
 
 function isReady() {
-  if (!state.project || state.project.angles.length < 2) {
+  if (!state.project || !state.project.angles.length) {
+    return false;
+  }
+  if (state.project.reviewMode !== "notes_only" && state.project.angles.length < 2) {
     return false;
   }
   return state.project.angles.every(angle => proxyAvailable(angle));
+}
+
+function supportsCameraDecisions(project = state.project) {
+  return Boolean(project && project.reviewMode !== "notes_only" && project.angles.length >= 2);
 }
 
 function proxyAvailable(angle) {
@@ -2823,9 +3244,14 @@ function buildProjectStatePayload() {
       };
     }),
     markers: state.markers.map(marker => ({
+      marker_id: marker.id,
       frame: marker.frame,
+      category: marker.category,
+      label: marker.label,
+      color: marker.color,
       note: marker.note,
-      created_at: marker.createdAt
+      created_at: marker.createdAt,
+      source: marker.source
     })),
     saved_at: new Date().toISOString()
   };
@@ -2892,13 +3318,13 @@ function restoreProjectState(project) {
         recordedAt: String(row.recorded_at || row.recordedAt || saved.saved_at || new Date().toISOString())
       });
     }
-    if (!restored.length) {
+    if (!restored.length && supportsCameraDecisions(project)) {
       return false;
     }
     state.decisions = restored.sort((a, b) => a.frame - b.frame);
     state.undoStack = [];
     state.redoStack = [];
-    if (!state.decisions.some(decision => decision.frame === 0) && project.angles[0]) {
+    if (supportsCameraDecisions(project) && !state.decisions.some(decision => decision.frame === 0) && project.angles[0]) {
       const angle = project.angles[0];
       state.decisions.unshift({
         frame: 0,
@@ -2911,9 +3337,11 @@ function restoreProjectState(project) {
     const savedTimelineFrame = Number(saved.timeline_frame ?? 0);
     state.timelineFrame = clampFrame(Number.isFinite(savedTimelineFrame) ? savedTimelineFrame : 0);
     const selectedFrame = Math.round(Number(saved.selected_decision_frame));
-    state.selectedDecisionFrame = state.decisions.some(decision => decision.frame === selectedFrame)
-      ? selectedFrame
-      : activeDecisionAtFrame(state.timelineFrame)?.frame ?? state.decisions[0]?.frame ?? 0;
+    state.selectedDecisionFrame = supportsCameraDecisions(project)
+      ? (state.decisions.some(decision => decision.frame === selectedFrame)
+        ? selectedFrame
+        : activeDecisionAtFrame(state.timelineFrame)?.frame ?? state.decisions[0]?.frame ?? 0)
+      : null;
     const active = activeDecisionAtFrame(state.timelineFrame);
     state.activeAngleId = active?.angleId || (byId.has(saved.active_angle_id) ? saved.active_angle_id : state.decisions[0]?.angleId || project.angles[0]?.id || "");
     state.visibleAngleId = state.activeAngleId;
@@ -2924,12 +3352,17 @@ function restoreProjectState(project) {
         continue;
       }
       state.markers.push({
+        id: String(row.marker_id || row.id || `marker_${cryptoRandomId()}`),
         frame,
+        category: markerCategoryById(row.category).id,
+        label: String(row.label || ""),
+        color: String(row.color || markerCategoryById(row.category).color),
         note: String(row.note || ""),
-        createdAt: String(row.created_at || row.createdAt || saved.saved_at || new Date().toISOString())
+        createdAt: String(row.created_at || row.createdAt || saved.saved_at || new Date().toISOString()),
+        source: String(row.source || "peco_mobile_review")
       });
     }
-    state.markers.sort((a, b) => a.frame - b.frame);
+    state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
     if (saved.reviewer_name && !elements.reviewerInput.value.trim()) {
       elements.reviewerInput.value = String(saved.reviewer_name);
     }
