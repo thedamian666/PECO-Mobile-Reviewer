@@ -19,13 +19,13 @@
       </div>
       <div class="top-actions">
         <input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer">
-        <button class="secondary" id="loadPackageButton" type="button">Import Match</button>
+        <button class="secondary" id="loadPackageButton" type="button">Open Review</button>
         <button class="secondary" id="loadFolderButton" type="button">Load Folder</button>
         <button class="secondary" id="loadManifestButton" type="button">Manifest</button>
         <button class="secondary" id="loadProxyButton" type="button">Proxy Files</button>
-        <button class="secondary" id="saveStateButton" type="button" disabled>Save State</button>
-        <button class="secondary" id="removePackageButton" type="button" hidden>Remove Match</button>
-        <button class="primary" id="exportButton" type="button" disabled>Export Decisions</button>
+        <button class="secondary" id="saveStateButton" type="button" disabled>Save Now</button>
+        <button class="secondary" id="removePackageButton" type="button" hidden>Remove Review</button>
+        <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
         <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
       </div>
       <input id="packageInput" type="file" accept=".json,application/json,video/*,.mp4,.mov,.m4v,.webm,.mkv,.pecoreview" multiple hidden>
@@ -45,6 +45,7 @@
             <span>Preview</span>
           </div>
           <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
+          <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
           <div class="viewer-status">
             <span id="activeAngleLabel">No angle</span>
             <span id="timecodeLabel">00:00:00:00</span>
@@ -63,7 +64,7 @@
         </div>
         <div class="angle-grid camera-review-only" id="angleGrid"></div>
         <div class="panel-head decisions-head camera-review-only">
-          <span>Decisions</span>
+          <span>Camera Choices</span>
           <div class="panel-actions">
             <button class="secondary compact" id="undoDecisionButton" type="button" disabled>Undo</button>
             <button class="secondary compact" id="redoDecisionButton" type="button" disabled>Redo</button>
@@ -80,13 +81,13 @@
 
     <footer class="control-deck">
       <div class="mobile-options-row" aria-label="Mobile package and decision options">
-        <button class="mobile-option" id="mobileLoadPackageButton" type="button">Import</button>
-        <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save State</button>
+        <button class="mobile-option" id="mobileLoadPackageButton" type="button">Open</button>
+        <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save</button>
         <button class="mobile-option" id="mobileRemovePackageButton" type="button" hidden>Remove</button>
         <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" disabled>Undo</button>
         <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" disabled>Redo</button>
         <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
-        <button class="mobile-option" id="mobileExportButton" type="button" disabled>Export</button>
+        <button class="mobile-option" id="mobileExportButton" type="button" disabled>Send Back</button>
       </div>
 
       <div class="transport-row">
@@ -152,11 +153,11 @@
     </div>
 
     <div class="preview-action-menu hidden" id="previewActionMenu" role="dialog" aria-live="polite" aria-label="Add review marker">
-      <div class="selection-summary" id="previewActionSummary">Add marker</div>
+      <div class="selection-summary" id="previewActionSummary">Add note</div>
       <div class="marker-category-buttons" id="markerCategoryButtons" role="group" aria-label="Note category"></div>
       <textarea id="markerNoteInput" rows="3" placeholder="Optional note"></textarea>
       <div class="menu-action-row">
-        <button class="primary" id="saveMarkerButton" type="button">Save Marker</button>
+        <button class="primary" id="saveMarkerButton" type="button">Add Note</button>
         <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>
       </div>
     </div>

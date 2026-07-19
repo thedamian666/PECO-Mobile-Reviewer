@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.1.13";
-const APP_VERSION_CODE = 14;
+const APP_VERSION = "0.1.14";
+const APP_VERSION_CODE = 15;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -56,6 +56,7 @@ const elements = {
   audioMaster: document.getElementById("audioMaster"),
   viewerEmpty: document.getElementById("viewerEmpty"),
   skipFeedback: document.getElementById("skipFeedback"),
+  addNoteButton: document.getElementById("addNoteButton"),
   activeAngleLabel: document.getElementById("activeAngleLabel"),
   timecodeLabel: document.getElementById("timecodeLabel"),
   timelineSlider: document.getElementById("timelineSlider"),
@@ -197,6 +198,13 @@ elements.clearDecisionSelectionButton.addEventListener("click", () => exitDecisi
 elements.deleteSelectedMarkersButton.addEventListener("click", deleteSelectedMarkers);
 elements.clearMarkerSelectionButton.addEventListener("click", () => exitMarkerSelection({ status: "Note selection closed." }));
 elements.saveMarkerButton.addEventListener("click", savePreviewMarker);
+elements.addNoteButton.addEventListener("pointerdown", event => event.stopPropagation());
+elements.addNoteButton.addEventListener("click", event => {
+  event.stopPropagation();
+  if (isReady()) {
+    openPreviewActionMenu(state.timelineFrame);
+  }
+});
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
 elements.reviewerInput.addEventListener("change", saveReviewer);
 elements.packageInput.addEventListener("change", event => loadPackageFiles([...event.target.files]));
@@ -816,8 +824,8 @@ function renderDecisionEditState() {
 function renderReviewMode() {
   const notesOnly = state.project?.reviewMode === "notes_only";
   document.body.classList.toggle("notes-only-mode", Boolean(notesOnly));
-  elements.exportButton.textContent = notesOnly ? "Export Notes" : "Export Decisions";
-  elements.mobileExportButton.textContent = notesOnly ? "Export Notes" : "Export";
+  elements.exportButton.textContent = "Send Back";
+  elements.mobileExportButton.textContent = "Send Back";
 }
 
 function renderProjectLine() {
@@ -826,7 +834,8 @@ function renderProjectLine() {
     elements.projectLine.textContent = "No package loaded";
     return;
   }
-  elements.projectLine.textContent = `${project.name} | ${project.fps} fps | ${project.durationFrames} frames | start ${project.timelineStartTimecode}`;
+  const reviewKind = project.reviewMode === "notes_only" ? "Notes" : "Camera + Notes";
+  elements.projectLine.textContent = `${project.name} | ${reviewKind} | ${framesToTimecode(project.durationFrames, project.fps)}`;
 }
 
 function renderTransport() {
@@ -834,6 +843,7 @@ function renderTransport() {
   for (const button of [
     elements.saveStateButton,
     elements.exportButton,
+    elements.addNoteButton,
     elements.gridToggle,
     elements.timelineSlider,
     elements.playButton,
@@ -2417,7 +2427,7 @@ function openPreviewActionMenu(frame) {
   const targetFrame = clampFrame(frame);
   state.previewActionFrame = targetFrame;
   state.selectedMarkerCategory = "note";
-  elements.previewActionSummary.textContent = `Marker at ${framesToTimecode((state.project.timelineStartFrame || 0) + targetFrame, state.project.fps)}`;
+  elements.previewActionSummary.textContent = `Note at ${framesToTimecode((state.project.timelineStartFrame || 0) + targetFrame, state.project.fps)}`;
   elements.markerNoteInput.value = "";
   renderMarkerCategoryButtons();
   elements.previewActionMenu.classList.remove("hidden");
