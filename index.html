@@ -23,7 +23,7 @@
         <button class="secondary" id="reviewLibraryButton" type="button">Reviews</button>
         <button class="secondary" id="saveStateButton" type="button" disabled>Save Now</button>
         <button class="secondary" id="removePackageButton" type="button" hidden>Remove Review</button>
-        <button class="secondary" id="clipToolsButton" type="button" title="Mark a range and render a proxy-quality video clip" disabled>Create Clip</button>
+        <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected clips" disabled>Render Video</button>
         <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
         <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
       </div>
@@ -45,7 +45,14 @@
             </div>
           </div>
           <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
-          <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
+          <div class="viewer-action-buttons">
+            <button class="viewer-note-button" id="addClipButton" type="button" title="Press once for clip IN and again for clip OUT" disabled>+ Clip</button>
+            <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
+          </div>
+          <div class="clip-capture-badge hidden" id="clipCaptureBadge">
+            <span id="clipCaptureLabel">Clip IN</span>
+            <button type="button" id="cancelClipCaptureButton" title="Cancel clip IN" aria-label="Cancel clip IN">&times;</button>
+          </div>
           <div class="viewer-status">
             <span id="activeAngleLabel">No angle</span>
             <span id="timecodeLabel">00:00:00:00</span>
@@ -85,7 +92,7 @@
         <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" title="Undo last edit (Ctrl+Z or Backtick)" aria-keyshortcuts="Control+Z Meta+Z Backquote" disabled>Undo</button>
         <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
         <button class="mobile-option camera-review-only" id="usePreviousAngleButton" type="button" title="Remove this cut and continue the previous camera angle (Q)" aria-keyshortcuts="Q" disabled>Use Previous</button>
-        <button class="mobile-option" id="mobileClipToolsButton" type="button" disabled>Clip</button>
+        <button class="mobile-option" id="mobileClipToolsButton" type="button" disabled>Render</button>
         <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
         <button class="mobile-option" id="mobileExportButton" type="button" disabled>Send Back</button>
       </div>
@@ -130,18 +137,10 @@
         </div>
       </div>
 
-      <div class="clip-toolbar" id="clipToolbar" aria-label="Create proxy clip" hidden>
-        <div class="clip-range-readout">
-          <strong>Create Clip</strong>
-          <span id="clipRangeLabel">Set a start and end</span>
-        </div>
-        <button class="secondary compact" id="setClipStartButton" type="button" title="Set clip start at the playhead (I)" aria-keyshortcuts="I">Set Start</button>
-        <button class="secondary compact" id="setClipEndButton" type="button" title="Set clip end at the playhead (O)" aria-keyshortcuts="O">Set End</button>
-        <button class="primary compact" id="renderClipButton" type="button" disabled>Render Proxy Clip</button>
-        <button class="secondary compact danger-action" id="cancelClipRenderButton" type="button" hidden>Cancel Render</button>
-        <button class="secondary compact clip-close-button" id="closeClipToolsButton" type="button" title="Close clip controls" aria-label="Close clip controls">&times;</button>
-        <progress class="clip-render-progress" id="clipRenderProgress" max="1" value="0" hidden></progress>
-      </div>
+      <section class="clip-list-section hidden" id="clipListSection" aria-label="Saved clip ranges">
+        <div class="clip-list-label">Clips <span id="clipCount">0</span></div>
+        <ol class="mobile-clip-list" id="clipList"></ol>
+      </section>
 
       <div class="mobile-timeline-row" aria-label="Full timeline seeker">
         <span id="mobileTimecodeLabel">00:00:00:00</span>
@@ -166,6 +165,42 @@
       <button class="secondary" id="clearMarkerSelectionButton" type="button">Close Menu</button>
     </div>
 
+    <div class="clip-selection-menu hidden" id="clipSelectionMenu" role="dialog" aria-live="polite" aria-label="Selected clips">
+      <div class="selection-summary" id="clipSelectionSummary">No clips selected</div>
+      <button class="primary" id="renderSelectedClipsButton" type="button">Render Reel</button>
+      <button class="primary danger-action" id="deleteSelectedClipsButton" type="button">Delete</button>
+      <button class="secondary" id="clearClipSelectionButton" type="button">Close Menu</button>
+    </div>
+
+    <div class="render-menu hidden" id="renderMenu" role="dialog" aria-modal="true" aria-label="Render proxy video">
+      <div class="render-menu-head">
+        <div>
+          <strong>Render Video</strong>
+          <span id="renderMenuSummary">Full review</span>
+        </div>
+        <button class="secondary compact" id="closeRenderMenuButton" type="button">Close</button>
+      </div>
+      <div class="render-mode-options" role="group" aria-label="Render content">
+        <button class="render-mode-button selected" id="renderFullModeButton" data-render-mode="full" type="button"><strong>Full Review</strong><span>Entire edited program</span></button>
+        <button class="render-mode-button" id="renderRangeModeButton" data-render-mode="range" type="button"><strong>In / Out</strong><span>One export range</span></button>
+        <button class="render-mode-button" id="renderReelModeButton" data-render-mode="reel" type="button"><strong>Clip Reel</strong><span>Selected clip tiles</span></button>
+      </div>
+      <div class="render-range-controls hidden" id="renderRangeControls">
+        <div class="render-range-readout" id="renderRangeLabel">00:00:00:00 to 00:00:00:00</div>
+        <button class="secondary compact" id="setRenderInButton" type="button" title="Set export IN at the playhead (I)" aria-keyshortcuts="I">Set IN</button>
+        <button class="secondary compact" id="setRenderOutButton" type="button" title="Set export OUT at the playhead (O)" aria-keyshortcuts="O">Set OUT</button>
+      </div>
+      <div class="render-destination">
+        <strong>Save</strong>
+        <span id="renderDestinationLabel">Choose a location before rendering.</span>
+      </div>
+      <progress class="clip-render-progress" id="clipRenderProgress" max="1" value="0" hidden></progress>
+      <div class="menu-action-row">
+        <button class="primary" id="renderClipButton" type="button" disabled>Choose Location &amp; Render</button>
+        <button class="secondary danger-action" id="cancelClipRenderButton" type="button" hidden>Cancel Render</button>
+      </div>
+    </div>
+
     <div class="preview-action-menu hidden" id="previewActionMenu" role="dialog" aria-live="polite" aria-label="Add review marker">
       <div class="selection-summary" id="previewActionSummary">Add note</div>
       <div class="marker-category-buttons" id="markerCategoryButtons" role="group" aria-label="Note category"></div>
@@ -188,6 +223,7 @@
 
     <script src="pecoreview-archive.js"></script>
     <script src="browser-storage.js"></script>
+    <script src="vendor/webm-muxer/webm-muxer.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.1.18";
-const APP_VERSION_CODE = 19;
+const APP_VERSION = "0.1.19";
+const APP_VERSION_CODE = 20;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -23,8 +23,7 @@ const JOG_CENTER_DEADZONE_PX = 5;
 const JOG_MIN_TRAVEL_PX = 32;
 const JOG_INNER_PADDING_PX = 10;
 const JOG_SHUTTLE_SPEEDS = [2, 4, 8];
-const CLIP_DEFAULT_SECONDS = 30;
-const CLIP_MAX_SECONDS = 300;
+const IN_MEMORY_RENDER_MAX_SECONDS = 300;
 const CLIP_RENDER_MAX_WIDTH = 1280;
 const CLIP_RENDER_MAX_HEIGHT = 720;
 const CLIP_RENDER_FPS_CAP = 30;
@@ -60,7 +59,11 @@ const elements = {
   audioMaster: document.getElementById("audioMaster"),
   viewerEmpty: document.getElementById("viewerEmpty"),
   skipFeedback: document.getElementById("skipFeedback"),
+  addClipButton: document.getElementById("addClipButton"),
   addNoteButton: document.getElementById("addNoteButton"),
+  clipCaptureBadge: document.getElementById("clipCaptureBadge"),
+  clipCaptureLabel: document.getElementById("clipCaptureLabel"),
+  cancelClipCaptureButton: document.getElementById("cancelClipCaptureButton"),
   activeAngleLabel: document.getElementById("activeAngleLabel"),
   timecodeLabel: document.getElementById("timecodeLabel"),
   timelineSlider: document.getElementById("timelineSlider"),
@@ -116,13 +119,27 @@ const elements = {
   jogReadout: document.getElementById("jogReadout"),
   jogWheel: document.getElementById("jogWheel"),
   jogKnob: document.getElementById("jogKnob"),
-  clipToolbar: document.getElementById("clipToolbar"),
-  clipRangeLabel: document.getElementById("clipRangeLabel"),
-  setClipStartButton: document.getElementById("setClipStartButton"),
-  setClipEndButton: document.getElementById("setClipEndButton"),
+  clipListSection: document.getElementById("clipListSection"),
+  clipList: document.getElementById("clipList"),
+  clipCount: document.getElementById("clipCount"),
+  clipSelectionMenu: document.getElementById("clipSelectionMenu"),
+  clipSelectionSummary: document.getElementById("clipSelectionSummary"),
+  renderSelectedClipsButton: document.getElementById("renderSelectedClipsButton"),
+  deleteSelectedClipsButton: document.getElementById("deleteSelectedClipsButton"),
+  clearClipSelectionButton: document.getElementById("clearClipSelectionButton"),
+  renderMenu: document.getElementById("renderMenu"),
+  renderMenuSummary: document.getElementById("renderMenuSummary"),
+  closeRenderMenuButton: document.getElementById("closeRenderMenuButton"),
+  renderFullModeButton: document.getElementById("renderFullModeButton"),
+  renderRangeModeButton: document.getElementById("renderRangeModeButton"),
+  renderReelModeButton: document.getElementById("renderReelModeButton"),
+  renderRangeControls: document.getElementById("renderRangeControls"),
+  renderRangeLabel: document.getElementById("renderRangeLabel"),
+  setRenderInButton: document.getElementById("setRenderInButton"),
+  setRenderOutButton: document.getElementById("setRenderOutButton"),
+  renderDestinationLabel: document.getElementById("renderDestinationLabel"),
   renderClipButton: document.getElementById("renderClipButton"),
   cancelClipRenderButton: document.getElementById("cancelClipRenderButton"),
-  closeClipToolsButton: document.getElementById("closeClipToolsButton"),
   clipRenderProgress: document.getElementById("clipRenderProgress"),
   mobileTimecodeLabel: document.getElementById("mobileTimecodeLabel"),
   mobileTimelineSlider: document.getElementById("mobileTimelineSlider"),
@@ -189,8 +206,15 @@ const state = {
   lastShuttleTs: 0,
   shuttleSpeed: 0,
   jogDrag: null,
-  clipInFrame: null,
-  clipOutFrame: null,
+  clipCaptureInFrame: null,
+  clips: [],
+  clipSelectionMode: false,
+  selectedClipIds: new Set(),
+  clipLongPress: null,
+  suppressClipClickId: null,
+  exportInFrame: 0,
+  exportOutFrame: null,
+  renderMode: "full",
   clipRender: null,
   clipAudioGraph: null,
   pendingMainVideoSwap: false,
@@ -217,7 +241,7 @@ elements.emptyReviewLibraryButton.addEventListener("click", event => {
 elements.reviewLibraryButton.addEventListener("click", openReviewLibrary);
 elements.saveStateButton.addEventListener("click", () => saveProjectState({ manual: true }));
 elements.removePackageButton.addEventListener("click", removeDownloadedMatch);
-elements.clipToolsButton.addEventListener("click", openClipTools);
+elements.clipToolsButton.addEventListener("click", () => openRenderMenu());
 elements.exportButton.addEventListener("click", exportCuts);
 elements.saveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileLoadPackageButton.addEventListener("click", openPackageImport);
@@ -227,7 +251,7 @@ elements.mobileRemovePackageButton.addEventListener("click", removeDownloadedMat
 elements.mobileUndoDecisionButton.addEventListener("click", undoDecision);
 elements.mobileRedoDecisionButton.addEventListener("click", redoDecision);
 elements.usePreviousAngleButton.addEventListener("click", removeCurrentCameraCut);
-elements.mobileClipToolsButton.addEventListener("click", openClipTools);
+elements.mobileClipToolsButton.addEventListener("click", () => openRenderMenu());
 elements.mobileSaveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileExportButton.addEventListener("click", exportCuts);
 elements.deleteSelectedDecisionsButton.addEventListener("click", deleteSelectedDecisionFrames);
@@ -242,13 +266,31 @@ elements.addNoteButton.addEventListener("click", event => {
     openPreviewActionMenu(state.timelineFrame);
   }
 });
+elements.addClipButton.addEventListener("pointerdown", event => event.stopPropagation());
+elements.addClipButton.addEventListener("click", event => {
+  event.stopPropagation();
+  toggleClipCapture();
+});
+elements.cancelClipCaptureButton.addEventListener("pointerdown", event => event.stopPropagation());
+elements.cancelClipCaptureButton.addEventListener("click", event => {
+  event.stopPropagation();
+  cancelClipCapture({ status: "Clip IN canceled." });
+});
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
 elements.closeReviewLibraryButton.addEventListener("click", closeReviewLibrary);
-elements.setClipStartButton.addEventListener("click", setClipStartAtPlayhead);
-elements.setClipEndButton.addEventListener("click", setClipEndAtPlayhead);
 elements.renderClipButton.addEventListener("click", renderProxyClip);
 elements.cancelClipRenderButton.addEventListener("click", () => cancelProxyClipRender());
-elements.closeClipToolsButton.addEventListener("click", closeClipTools);
+elements.closeRenderMenuButton.addEventListener("click", closeRenderMenu);
+elements.setRenderInButton.addEventListener("click", setRenderInAtPlayhead);
+elements.setRenderOutButton.addEventListener("click", setRenderOutAtPlayhead);
+elements.renderFullModeButton.addEventListener("click", () => setRenderMode("full"));
+elements.renderRangeModeButton.addEventListener("click", () => setRenderMode("range"));
+elements.renderReelModeButton.addEventListener("click", () => setRenderMode("reel"));
+elements.renderSelectedClipsButton.addEventListener("click", () => {
+  openRenderMenu("reel");
+});
+elements.deleteSelectedClipsButton.addEventListener("click", deleteSelectedClips);
+elements.clearClipSelectionButton.addEventListener("click", () => exitClipSelection({ status: "Clip selection closed." }));
 elements.libraryOpenReviewButton.addEventListener("click", () => {
   closeReviewLibrary();
   openPackageImport();
@@ -626,8 +668,15 @@ function resetProject(options = {}) {
   state.lastFollowedDecisionFrame = null;
   state.lastProgramSyncMs = 0;
   state.reviewPlaybackRate = 1;
-  state.clipInFrame = null;
-  state.clipOutFrame = null;
+  state.clipCaptureInFrame = null;
+  state.clips = [];
+  state.clipSelectionMode = false;
+  state.selectedClipIds.clear();
+  state.clipLongPress = null;
+  state.suppressClipClickId = null;
+  state.exportInFrame = 0;
+  state.exportOutFrame = null;
+  state.renderMode = "full";
   clearTimeout(state.decisionListScrollTimer);
   state.decisions = [];
   state.undoStack = [];
@@ -645,11 +694,13 @@ function resetProject(options = {}) {
   state.previewActionFrame = null;
   state.tapGesture.lastTap = null;
   state.suppressViewerTap = false;
+  clearClipLongPress();
   clearViewerLongPress();
   clearAnglePreviewSwipe();
   elements.previewActionMenu.classList.add("hidden");
   elements.markerSelectionMenu.classList.add("hidden");
-  elements.clipToolbar.hidden = true;
+  elements.clipSelectionMenu.classList.add("hidden");
+  elements.renderMenu.classList.add("hidden");
   document.body.classList.remove("clip-rendering");
   document.body.classList.remove("notes-only-mode");
   clearProgramVideos();
@@ -972,8 +1023,10 @@ function renderAll() {
   renderAngles();
   renderDecisionList();
   renderMarkerList();
+  renderClipList();
   renderTimeline();
-  renderClipTools();
+  renderClipCapture();
+  renderRenderMenu();
 }
 
 function renderDecisionEditState() {
@@ -983,8 +1036,10 @@ function renderDecisionEditState() {
   renderBoundaryControls();
   renderDecisionList();
   renderMarkerList();
+  renderClipList();
   renderTimeline();
-  renderClipTools();
+  renderClipCapture();
+  renderRenderMenu();
   updateAngleActiveState();
 }
 
@@ -1016,6 +1071,7 @@ function renderTransport() {
     elements.saveStateButton,
     elements.exportButton,
     elements.clipToolsButton,
+    elements.addClipButton,
     elements.addNoteButton,
     elements.gridToggle,
     elements.timelineSlider,
@@ -1058,7 +1114,8 @@ function renderTransport() {
   elements.mobileExportButton.disabled = !loaded;
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
-  renderClipTools();
+  renderClipCapture();
+  renderRenderMenu();
 }
 
 function renderUsePreviousAngleButtonState() {
@@ -1589,6 +1646,7 @@ function enterMarkerSelection(markerId) {
   }
   pausePlayback({ silent: true });
   exitDecisionSelection();
+  clearClipSelectionState();
   state.markerSelectionMode = true;
   state.selectedMarkerIds.add(markerId);
   renderAll();
@@ -2032,6 +2090,7 @@ function enterDecisionSelection(frame) {
   }
   pausePlayback({ silent: true });
   clearMarkerSelectionState();
+  clearClipSelectionState();
   state.decisionSelectionMode = true;
   state.selectedDecisionFrames.add(frame);
   state.selectedDecisionFrame = frame;
@@ -2242,6 +2301,7 @@ function setTimelineFrame(frame, options = {}) {
     follow: Boolean(options.followMarkerList ?? (state.isPlaying && state.markerListAutoFollow)),
     force: Boolean(options.forceMarkerListFollow)
   });
+  updateClipListActiveState();
 }
 
 function syncAllVideos() {
@@ -2337,6 +2397,9 @@ function keepProgramVideosPlaying() {
   if (audio?.paused) {
     audio.play().catch(() => {});
   }
+  if (state.clipRender?.audio?.paused) {
+    state.clipRender.audio.play().catch(() => {});
+  }
 }
 
 function syncAudioMasterToTimeline() {
@@ -2349,7 +2412,7 @@ function syncAudioMasterToTimeline() {
 }
 
 function playbackClockTimelineSeconds() {
-  const audio = ensureAudioMaster();
+  const audio = state.clipRender?.audio || ensureAudioMaster();
   const angle = audioMasterAngle();
   if (audio && angle && audio.readyState >= 1) {
     return Math.max(0, (audio.currentTime || 0) - angle.proxySyncOffsetFrames / state.project.fps);
@@ -2855,7 +2918,7 @@ function startPlaybackLoop() {
       state.playbackRaf = requestAnimationFrame(tick);
       return;
     }
-    const audio = ensureAudioMaster();
+    const audio = state.clipRender?.audio || ensureAudioMaster();
     const audioAngle = audioMasterAngle();
     if (audio && audioAngle) {
       const frame = Math.round(audio.currentTime * state.project.fps - audioAngle.proxySyncOffsetFrames);
@@ -3044,6 +3107,7 @@ function playFloaterJogAudio() {
 
 function pauseReviewVideos() {
   elements.audioMaster.pause();
+  state.clipRender?.audio?.pause?.();
   for (const entry of state.programVideos.values()) {
     entry.video.pause();
   }
@@ -3055,6 +3119,9 @@ function pauseReviewVideos() {
 function setReviewPlaybackRate(rate) {
   state.reviewPlaybackRate = rate;
   setMediaPlaybackRate(elements.audioMaster, rate);
+  if (state.clipRender?.audio) {
+    setMediaPlaybackRate(state.clipRender.audio, rate);
+  }
   for (const entry of state.programVideos.values()) {
     setMediaPlaybackRate(entry.video, rate);
   }
@@ -3112,14 +3179,14 @@ function handleKeydown(event) {
   const unmodifiedShortcut = !event.altKey && !event.ctrlKey && !event.metaKey;
   if (unmodifiedShortcut && !event.repeat && event.code === "KeyI") {
     event.preventDefault();
-    openClipTools();
-    setClipStartAtPlayhead();
+    openRenderMenu("range");
+    setRenderInAtPlayhead();
     return;
   }
   if (unmodifiedShortcut && !event.repeat && event.code === "KeyO") {
     event.preventDefault();
-    openClipTools();
-    setClipEndAtPlayhead();
+    openRenderMenu("range");
+    setRenderOutAtPlayhead();
     return;
   }
   if (unmodifiedShortcut && event.code === "KeyQ") {
@@ -3146,80 +3213,319 @@ function handleKeydown(event) {
   }
 }
 
-function openClipTools() {
+function toggleClipCapture() {
+  if (!isReady() || state.clipRender) {
+    return;
+  }
+  if (!Number.isInteger(state.clipCaptureInFrame)) {
+    exitClipSelection();
+    state.clipCaptureInFrame = state.timelineFrame;
+    renderClipCapture();
+    renderClipList();
+    setStatus(`Clip IN ${clipFrameTimecode(state.clipCaptureInFrame)}. Press + Clip again for OUT.`);
+    return;
+  }
+  const outFrame = state.timelineFrame;
+  if (outFrame <= state.clipCaptureInFrame) {
+    setStatus("Clip OUT must be after Clip IN.", true);
+    return;
+  }
+  const clip = {
+    id: `clip_${cryptoRandomId()}`,
+    inFrame: state.clipCaptureInFrame,
+    outFrame,
+    createdAt: new Date().toISOString()
+  };
+  state.clips.push(clip);
+  state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+  state.clipCaptureInFrame = null;
+  scheduleProjectStateAutosave();
+  renderAll();
+  setStatus(`Saved clip ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
+}
+
+function cancelClipCapture(options = {}) {
+  if (!Number.isInteger(state.clipCaptureInFrame)) {
+    return;
+  }
+  state.clipCaptureInFrame = null;
+  renderClipCapture();
+  renderClipList();
+  if (options.status) {
+    setStatus(options.status);
+  }
+}
+
+function renderClipCapture() {
+  const capturing = Number.isInteger(state.clipCaptureInFrame);
+  elements.addClipButton.disabled = !isReady() || Boolean(state.clipRender);
+  elements.addClipButton.textContent = capturing ? "Set Clip OUT" : "+ Clip";
+  elements.addClipButton.classList.toggle("capturing", capturing);
+  elements.clipCaptureBadge.classList.toggle("hidden", !capturing);
+  elements.clipCaptureLabel.textContent = capturing
+    ? `Clip IN ${clipFrameTimecode(state.clipCaptureInFrame)}`
+    : "Clip IN";
+}
+
+function renderClipList() {
+  elements.clipList.innerHTML = "";
+  elements.clipCount.textContent = String(state.clips.length);
+  elements.clipListSection.classList.toggle("hidden", !state.clips.length && !Number.isInteger(state.clipCaptureInFrame));
+  const active = state.clips.find(clip => state.timelineFrame >= clip.inFrame && state.timelineFrame < clip.outFrame) || null;
+  state.clips.forEach((clip, index) => {
+    const item = document.createElement("li");
+    item.dataset.clipId = clip.id;
+    item.classList.toggle("current", clip.id === active?.id);
+    item.classList.toggle("multi-selected", state.selectedClipIds.has(clip.id));
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "clip-range-button";
+    button.innerHTML = "<strong></strong><span></span><em></em>";
+    button.querySelector("strong").textContent = `Clip ${index + 1}`;
+    button.querySelector("span").textContent = `${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}`;
+    button.querySelector("em").textContent = formatClipDuration((clip.outFrame - clip.inFrame) / state.project.fps);
+    button.addEventListener("click", event => handleClipTap(event, clip.id));
+    button.addEventListener("pointerdown", event => startClipLongPress(event, clip.id));
+    button.addEventListener("contextmenu", event => event.preventDefault());
+    item.appendChild(button);
+    elements.clipList.appendChild(item);
+  });
+  renderClipSelectionMenu();
+}
+
+function updateClipListActiveState() {
+  const active = state.clips.find(clip => state.timelineFrame >= clip.inFrame && state.timelineFrame < clip.outFrame) || null;
+  for (const item of elements.clipList.querySelectorAll("li[data-clip-id]")) {
+    item.classList.toggle("current", item.dataset.clipId === active?.id);
+  }
+}
+
+function handleClipTap(event, clipId) {
+  if (state.suppressClipClickId === clipId) {
+    state.suppressClipClickId = null;
+    event.preventDefault();
+    return;
+  }
+  if (state.clipSelectionMode) {
+    event.preventDefault();
+    toggleClipSelection(clipId);
+    return;
+  }
+  const clip = state.clips.find(item => item.id === clipId);
+  if (!clip) {
+    return;
+  }
+  pausePlayback({ silent: true });
+  setTimelineFrame(clip.inFrame, { syncVideos: true, persist: true });
+  setStatus(`Clip ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
+}
+
+function startClipLongPress(event, clipId) {
+  if (!isReady() || event.button > 0) {
+    return;
+  }
+  clearClipLongPress();
+  const gesture = {
+    pointerId: event.pointerId,
+    clipId,
+    startX: event.clientX,
+    startY: event.clientY,
+    fired: false,
+    timer: 0
+  };
+  gesture.timer = setTimeout(() => {
+    gesture.fired = true;
+    state.suppressClipClickId = clipId;
+    enterClipSelection(clipId);
+  }, 560);
+  state.clipLongPress = gesture;
+  window.addEventListener("pointermove", moveClipLongPress);
+  window.addEventListener("pointerup", endClipLongPress, { once: true });
+  window.addEventListener("pointercancel", endClipLongPress, { once: true });
+}
+
+function moveClipLongPress(event) {
+  const gesture = state.clipLongPress;
+  if (!gesture || event.pointerId !== gesture.pointerId) {
+    return;
+  }
+  if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 12) {
+    clearClipLongPress();
+  }
+}
+
+function endClipLongPress(event) {
+  const gesture = state.clipLongPress;
+  if (gesture && event.pointerId === gesture.pointerId && gesture.fired) {
+    state.suppressClipClickId = gesture.clipId;
+  }
+  clearClipLongPress();
+}
+
+function clearClipLongPress() {
+  if (state.clipLongPress?.timer) {
+    clearTimeout(state.clipLongPress.timer);
+  }
+  state.clipLongPress = null;
+  window.removeEventListener("pointermove", moveClipLongPress);
+  window.removeEventListener("pointerup", endClipLongPress);
+  window.removeEventListener("pointercancel", endClipLongPress);
+}
+
+function enterClipSelection(clipId) {
+  if (!state.clips.some(clip => clip.id === clipId)) {
+    return;
+  }
+  pausePlayback({ silent: true });
+  clearDecisionSelectionState();
+  clearMarkerSelectionState();
+  state.clipSelectionMode = true;
+  state.selectedClipIds.add(clipId);
+  renderAll();
+  setStatus("Clip selection mode. Tap more clips to include or remove them.");
+}
+
+function toggleClipSelection(clipId) {
+  if (state.selectedClipIds.has(clipId)) {
+    state.selectedClipIds.delete(clipId);
+  } else if (state.clips.some(clip => clip.id === clipId)) {
+    state.selectedClipIds.add(clipId);
+  }
+  if (!state.selectedClipIds.size) {
+    exitClipSelection({ status: "Clip selection cleared." });
+  } else {
+    renderAll();
+  }
+}
+
+function exitClipSelection(options = {}) {
+  clearClipSelectionState();
+  renderClipList();
+  if (options.status) {
+    setStatus(options.status);
+  }
+}
+
+function clearClipSelectionState() {
+  clearClipLongPress();
+  state.clipSelectionMode = false;
+  state.selectedClipIds.clear();
+  state.suppressClipClickId = null;
+}
+
+function deleteSelectedClips() {
+  const selected = new Set(state.selectedClipIds);
+  const removedCount = state.clips.filter(clip => selected.has(clip.id)).length;
+  state.clips = state.clips.filter(clip => !selected.has(clip.id));
+  state.clipSelectionMode = false;
+  state.selectedClipIds.clear();
+  state.suppressClipClickId = null;
+  scheduleProjectStateAutosave();
+  renderAll();
+  setStatus(`Deleted ${removedCount} selected clip${removedCount === 1 ? "" : "s"}.`);
+}
+
+function renderClipSelectionMenu() {
+  const count = state.selectedClipIds.size;
+  const visible = state.clipSelectionMode && count > 0;
+  elements.clipSelectionMenu.classList.toggle("hidden", !visible);
+  elements.clipSelectionSummary.textContent = visible
+    ? `${count} clip${count === 1 ? "" : "s"} selected`
+    : "No clips selected";
+  elements.renderSelectedClipsButton.disabled = !visible;
+  elements.deleteSelectedClipsButton.disabled = !visible;
+}
+
+function openRenderMenu(mode = state.renderMode) {
   if (!isReady()) {
     return;
   }
-  if (!clipRangeIsValid()) {
-    initializeClipRange();
-  }
-  elements.clipToolbar.hidden = false;
-  renderClipTools();
+  state.exportInFrame = clampFrame(state.exportInFrame || 0);
+  state.exportOutFrame = Number.isInteger(state.exportOutFrame) ? clampFrame(state.exportOutFrame) : maxFrame();
+  setRenderMode(mode);
+  elements.clipSelectionMenu.classList.add("hidden");
+  elements.renderMenu.classList.remove("hidden");
+  renderRenderMenu();
 }
 
-function closeClipTools() {
+function closeRenderMenu() {
   if (state.clipRender) {
-    setStatus("Cancel the current clip render before closing the clip controls.", true);
+    setStatus("Cancel the current render before closing this menu.", true);
     return;
   }
-  elements.clipToolbar.hidden = true;
+  elements.renderMenu.classList.add("hidden");
+  renderClipSelectionMenu();
 }
 
-function initializeClipRange() {
-  if (!state.project) {
+function setRenderMode(mode) {
+  if (!["full", "range", "reel"].includes(mode)) {
     return;
   }
-  const defaultFrames = Math.max(1, Math.round(CLIP_DEFAULT_SECONDS * state.project.fps));
-  let start = state.timelineFrame;
-  let end = Math.min(maxFrame(), start + defaultFrames);
-  if (end <= start) {
-    end = maxFrame();
-    start = Math.max(0, end - defaultFrames);
-  }
-  state.clipInFrame = start;
-  state.clipOutFrame = end;
-  scheduleProjectStateAutosave();
+  state.renderMode = mode;
+  renderRenderMenu();
 }
 
-function setClipStartAtPlayhead() {
+function setRenderInAtPlayhead() {
   if (!isReady() || state.clipRender) {
     return;
   }
-  state.clipInFrame = state.timelineFrame;
-  if (!Number.isInteger(state.clipOutFrame) || state.clipOutFrame <= state.clipInFrame) {
-    state.clipOutFrame = Math.min(
-      maxFrame(),
-      state.clipInFrame + Math.max(1, Math.round(CLIP_DEFAULT_SECONDS * state.project.fps))
-    );
+  state.exportInFrame = state.timelineFrame;
+  if (!Number.isInteger(state.exportOutFrame) || state.exportOutFrame <= state.exportInFrame) {
+    state.exportOutFrame = maxFrame();
   }
-  renderClipTools();
   scheduleProjectStateAutosave();
-  setStatus(`Clip start set to ${clipFrameTimecode(state.clipInFrame)}.`);
+  renderRenderMenu();
+  setStatus(`Export IN set to ${clipFrameTimecode(state.exportInFrame)}.`);
 }
 
-function setClipEndAtPlayhead() {
+function setRenderOutAtPlayhead() {
   if (!isReady() || state.clipRender) {
     return;
   }
-  state.clipOutFrame = state.timelineFrame;
-  renderClipTools();
+  state.exportOutFrame = state.timelineFrame;
   scheduleProjectStateAutosave();
-  if (clipRangeIsValid()) {
-    setStatus(`Clip end set to ${clipFrameTimecode(state.clipOutFrame)}.`);
-  } else {
-    setStatus("Clip end must be after the clip start.", true);
-  }
+  renderRenderMenu();
+  setStatus(exportRangeIsValid()
+    ? `Export OUT set to ${clipFrameTimecode(state.exportOutFrame)}.`
+    : "Export OUT must be after Export IN.",
+  !exportRangeIsValid());
 }
 
-function clipRangeIsValid() {
+function exportRangeIsValid() {
   return Boolean(
     state.project
-    && Number.isInteger(state.clipInFrame)
-    && Number.isInteger(state.clipOutFrame)
-    && state.clipInFrame >= 0
-    && state.clipOutFrame > state.clipInFrame
-    && state.clipOutFrame <= maxFrame()
+    && Number.isInteger(state.exportInFrame)
+    && Number.isInteger(state.exportOutFrame)
+    && state.exportInFrame >= 0
+    && state.exportOutFrame > state.exportInFrame
+    && state.exportOutFrame <= maxFrame()
   );
+}
+
+function selectedClipSegments() {
+  return state.clips
+    .filter(clip => state.selectedClipIds.has(clip.id))
+    .sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame)
+    .map(clip => ({ id: clip.id, inFrame: clip.inFrame, outFrame: clip.outFrame }));
+}
+
+function renderSegmentsForMode(mode = state.renderMode) {
+  if (mode === "full") {
+    return maxFrame() > 0 ? [{ id: "full", inFrame: 0, outFrame: maxFrame() }] : [];
+  }
+  if (mode === "range") {
+    return exportRangeIsValid()
+      ? [{ id: "range", inFrame: state.exportInFrame, outFrame: state.exportOutFrame }]
+      : [];
+  }
+  return selectedClipSegments();
+}
+
+function renderDurationSeconds(segments = renderSegmentsForMode()) {
+  if (!state.project) {
+    return 0;
+  }
+  return segments.reduce((total, segment) => total + Math.max(0, segment.outFrame - segment.inFrame), 0) / state.project.fps;
 }
 
 function clipFrameTimecode(frame) {
@@ -3229,45 +3535,63 @@ function clipFrameTimecode(frame) {
   return framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps);
 }
 
-function clipDurationSeconds() {
-  if (!clipRangeIsValid()) {
-    return 0;
-  }
-  return (state.clipOutFrame - state.clipInFrame) / state.project.fps;
-}
-
-function renderClipTools() {
-  const loaded = isReady();
+function renderRenderMenu() {
   const active = state.clipRender;
-  const validRange = clipRangeIsValid();
-  const duration = clipDurationSeconds();
+  const segments = renderSegmentsForMode();
+  const duration = renderDurationSeconds(segments);
   const profile = clipRecordingProfile();
-  elements.setClipStartButton.disabled = !loaded || Boolean(active);
-  elements.setClipEndButton.disabled = !loaded || Boolean(active);
-  elements.renderClipButton.disabled = !loaded
+  const directSave = supportsDirectRenderSave();
+  for (const button of [elements.renderFullModeButton, elements.renderRangeModeButton, elements.renderReelModeButton]) {
+    button.classList.toggle("selected", button.dataset.renderMode === state.renderMode);
+    button.disabled = Boolean(active);
+  }
+  elements.renderRangeControls.classList.toggle("hidden", state.renderMode !== "range");
+  elements.setRenderInButton.disabled = Boolean(active);
+  elements.setRenderOutButton.disabled = Boolean(active);
+  elements.closeRenderMenuButton.disabled = Boolean(active);
+  elements.renderRangeLabel.textContent = exportRangeIsValid()
+    ? `${clipFrameTimecode(state.exportInFrame)} to ${clipFrameTimecode(state.exportOutFrame)}`
+    : "Set a valid IN and OUT";
+  const modeLabel = state.renderMode === "full"
+    ? "Full review"
+    : state.renderMode === "range"
+      ? "In / Out range"
+      : `${segments.length} selected clip${segments.length === 1 ? "" : "s"}`;
+  elements.renderMenuSummary.textContent = `${modeLabel} | ${formatClipDuration(duration)} | proxy quality`;
+  const touchDevice = window.matchMedia?.("(pointer: coarse)")?.matches || navigator.maxTouchPoints > 1;
+  elements.renderDestinationLabel.textContent = directSave
+    ? "A save dialog opens first, then PECO writes directly to that file."
+    : touchDevice
+      ? "Your Share or Download choices appear after rendering."
+      : "The finished file downloads through your browser.";
+  elements.renderClipButton.textContent = directSave
+    ? "Choose Location & Render"
+    : touchDevice
+      ? "Render & Share"
+      : "Render & Download";
+  const tooLongForMemory = !directSave && duration > IN_MEMORY_RENDER_MAX_SECONDS;
+  elements.renderClipButton.disabled = !isReady()
     || Boolean(active)
-    || !validRange
-    || duration > CLIP_MAX_SECONDS
+    || !segments.length
+    || duration <= 0
+    || tooLongForMemory
     || !profile;
   elements.renderClipButton.hidden = Boolean(active);
   elements.cancelClipRenderButton.hidden = !active;
-  elements.closeClipToolsButton.disabled = Boolean(active);
   elements.clipRenderProgress.hidden = !active;
   elements.clipRenderProgress.value = active?.progress || 0;
   if (active) {
     const percent = Math.round((active.progress || 0) * 100);
-    elements.clipRangeLabel.textContent = `Rendering ${percent}% | ${active.inTimecode} to ${active.outTimecode}`;
-    return;
+    elements.renderMenuSummary.textContent = `Rendering ${percent}% | ${active.label}`;
+  } else if (tooLongForMemory) {
+    elements.renderDestinationLabel.textContent = "This range is over 5 minutes. Use desktop Chrome or Edge to save it directly without filling phone memory.";
+  } else if (state.renderMode === "reel" && !segments.length) {
+    elements.renderDestinationLabel.textContent = "Long-press clip tiles to highlight the clips for this reel.";
   }
-  if (!validRange) {
-    const start = Number.isInteger(state.clipInFrame) ? clipFrameTimecode(state.clipInFrame) : "not set";
-    const end = Number.isInteger(state.clipOutFrame) ? clipFrameTimecode(state.clipOutFrame) : "not set";
-    elements.clipRangeLabel.textContent = `${start} to ${end}`;
-    return;
-  }
-  const durationLabel = formatClipDuration(duration);
-  const supportLabel = profile ? "proxy quality" : "render unavailable in this browser";
-  elements.clipRangeLabel.textContent = `${clipFrameTimecode(state.clipInFrame)} to ${clipFrameTimecode(state.clipOutFrame)} | ${durationLabel} | ${supportLabel}`;
+}
+
+function supportsDirectRenderSave() {
+  return window.isSecureContext && typeof window.showSaveFilePicker === "function";
 }
 
 function formatClipDuration(seconds) {
@@ -3278,19 +3602,25 @@ function formatClipDuration(seconds) {
 }
 
 function clipRecordingProfiles() {
+  if (webCodecsRenderSupported()) {
+    return [{ mimeType: "video/webm", extension: "webm" }];
+  }
   if (typeof MediaRecorder !== "function") {
     return [];
   }
   return [
-    { mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", extension: "mp4" },
-    { mimeType: "video/mp4", extension: "mp4" },
     { mimeType: "video/webm;codecs=vp9,opus", extension: "webm" },
     { mimeType: "video/webm;codecs=vp8,opus", extension: "webm" },
-    { mimeType: "video/webm", extension: "webm" }
+    { mimeType: "video/webm", extension: "webm" },
+    { mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", extension: "mp4" },
+    { mimeType: "video/mp4", extension: "mp4" }
   ].filter(profile => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(profile.mimeType));
 }
 
 function clipRecordingProfile() {
+  if (webCodecsRenderSupported()) {
+    return clipRecordingProfiles()[0];
+  }
   const canvas = document.createElement("canvas");
   if (typeof canvas.captureStream !== "function") {
     return null;
@@ -3298,39 +3628,87 @@ function clipRecordingProfile() {
   return clipRecordingProfiles()[0] || null;
 }
 
+function webCodecsRenderSupported() {
+  return Boolean(
+    window.WebMMuxer?.Muxer
+    && window.WebMMuxer?.ArrayBufferTarget
+    && typeof VideoEncoder === "function"
+    && typeof AudioEncoder === "function"
+    && typeof MediaStreamTrackProcessor === "function"
+    && typeof VideoFrame === "function"
+    && typeof AudioData === "function"
+  );
+}
+
 async function renderProxyClip() {
   if (!isReady() || state.clipRender) {
     return;
   }
-  if (!clipRangeIsValid()) {
-    setStatus("Set a clip start and end before rendering.", true);
+  const segments = renderSegmentsForMode();
+  if (!segments.length) {
+    setStatus(state.renderMode === "reel"
+      ? "Long-press clip tiles to highlight clips for the reel."
+      : "Set a valid export IN and OUT before rendering.", true);
     return;
   }
-  const duration = clipDurationSeconds();
-  if (duration > CLIP_MAX_SECONDS) {
-    setStatus(`Proxy clips are limited to ${Math.round(CLIP_MAX_SECONDS / 60)} minutes. Choose a shorter range.`, true);
+  const duration = renderDurationSeconds(segments);
+  const directSave = supportsDirectRenderSave();
+  if (!directSave && duration > IN_MEMORY_RENDER_MAX_SECONDS) {
+    setStatus("Renders over 5 minutes require desktop Chrome or Edge so PECO can write directly to a chosen file.", true);
     return;
   }
   const profiles = clipRecordingProfiles();
-  if (!profiles.length || typeof document.createElement("canvas").captureStream !== "function") {
+  if (!profiles.length || (!webCodecsRenderSupported() && typeof document.createElement("canvas").captureStream !== "function")) {
     setStatus("This browser cannot render video clips. Use current Chrome, Edge, or Safari and try again.", true);
     return;
   }
+  const profile = profiles[0];
+  const filename = renderOutputFilename(state.renderMode, segments, profile.extension);
+  let fileHandle = null;
+  let writable = null;
+  if (directSave) {
+    try {
+      fileHandle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{
+          description: profile.extension === "mp4" ? "MP4 video" : "WebM video",
+          accept: { [profile.mimeType.split(";")[0]]: [`.${profile.extension}`] }
+        }]
+      });
+      writable = await fileHandle.createWritable();
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setStatus("Render canceled before it began.");
+        return;
+      }
+      setStatus(`Could not open the save location: ${error.message}`, true);
+      return;
+    }
+  }
   pausePlayback({ silent: true });
+  const totalFrames = segments.reduce((total, segment) => total + Math.max(0, segment.outFrame - segment.inFrame), 0);
+  const firstSegment = segments[0];
   const render = {
     projectName: state.project.name,
     fps: state.project.fps,
     timelineStartFrame: state.project.timelineStartFrame || 0,
-    inFrame: state.clipInFrame,
-    outFrame: state.clipOutFrame,
-    inTimecode: clipFrameTimecode(state.clipInFrame),
-    outTimecode: clipFrameTimecode(state.clipOutFrame),
+    mode: state.renderMode,
+    label: renderModeLabel(state.renderMode, segments),
+    filename,
+    segments,
+    segmentIndex: 0,
+    completedFrames: 0,
+    totalFrames,
+    inFrame: firstSegment.inFrame,
+    outFrame: firstSegment.outFrame,
     progress: 0,
     chunks: [],
+    writable,
+    writeChain: Promise.resolve(),
     recorder: null,
     outputStream: null,
-    sourceAudioStream: null,
     canvasRaf: 0,
+    transitioning: false,
     cancelled: false,
     error: null,
     finalized: false,
@@ -3339,52 +3717,61 @@ async function renderProxyClip() {
   };
   state.clipRender = render;
   document.body.classList.add("clip-rendering");
-  renderClipTools();
+  renderRenderMenu();
   renderTransport();
-  setStatus("Preparing proxy clip render...");
+  setStatus(`Preparing ${render.label.toLowerCase()}...`);
   try {
-    await prepareClipMediaAtFrame(render.inFrame);
+    const realm = createClipRenderRealm();
+    render.realm = realm;
+    render.audio = realm.audio;
+    render.previousMasterMuted = elements.audioMaster.muted;
+    elements.audioMaster.muted = true;
+    await prepareClipMediaAtFrame(render.inFrame, render.audio);
     if (!clipRenderIsActive(render)) {
       return;
     }
     const dimensions = clipCanvasDimensions();
-    const canvas = document.createElement("canvas");
+    const canvas = realm.document.createElement("canvas");
     canvas.width = dimensions.width;
     canvas.height = dimensions.height;
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) {
       throw new Error("The browser could not create the clip render surface.");
     }
-    const videoStream = canvas.captureStream(Math.min(CLIP_RENDER_FPS_CAP, Math.max(1, Math.round(render.fps))));
-    const audioCapture = await createClipAudioCapture();
+    const audioCapture = await createClipAudioCapture(render.audio, realm.window);
     if (!clipRenderIsActive(render)) {
-      for (const track of videoStream.getTracks()) {
-        track.stop();
-      }
-      audioCapture?.track?.stop?.();
+      audioCapture?.cleanup?.();
       return;
     }
     if (!audioCapture?.track) {
       throw new Error("Floater audio could not be attached to the clip render.");
     }
-    const outputStream = new MediaStream();
-    for (const track of videoStream.getVideoTracks()) {
-      outputStream.addTrack(track);
-    }
-    outputStream.addTrack(audioCapture.track);
-    const recorderResult = createClipMediaRecorder(outputStream, profiles);
-    if (!recorderResult) {
-      throw new Error("The browser rejected every supported clip recording format.");
-    }
     render.canvas = canvas;
     render.context = context;
-    render.outputStream = outputStream;
-    render.sourceAudioStream = audioCapture.sourceStream || null;
-    render.recorder = recorderResult.recorder;
-    render.profile = recorderResult.profile;
+    render.audioCleanup = audioCapture.cleanup || null;
+    render.profile = profile;
+    if (webCodecsRenderSupported()) {
+      render.webCodecs = await createWebCodecsClipRecorder(render, audioCapture.track, dimensions, directSave);
+    } else {
+      const videoStream = canvas.captureStream(Math.min(CLIP_RENDER_FPS_CAP, Math.max(1, Math.round(render.fps))));
+      const outputStream = new realm.window.MediaStream();
+      for (const track of videoStream.getVideoTracks()) {
+        outputStream.addTrack(track);
+      }
+      outputStream.addTrack(audioCapture.track);
+      const recorderResult = createClipMediaRecorder(outputStream, directSave ? [profile] : profiles, realm.window.MediaRecorder);
+      if (!recorderResult) {
+        throw new Error("The browser rejected every supported clip recording format.");
+      }
+      render.sourceOutputStream = outputStream;
+      render.outputStream = outputStream;
+      render.recorder = recorderResult.recorder;
+      render.profile = recorderResult.profile;
+    }
     const wakeLock = await requestClipWakeLock();
     if (!clipRenderIsActive(render)) {
-      for (const track of outputStream.getTracks()) {
+      render.webCodecs?.cleanup?.();
+      for (const track of render.outputStream?.getTracks?.() || []) {
         track.stop();
       }
       try {
@@ -3404,25 +3791,285 @@ async function renderProxyClip() {
       pausePlayback({ silent: true });
       return;
     }
+    await render.audio.play();
     for (const preview of state.gridVideos.values()) {
       preview.video.play().catch(() => {});
     }
     drawClipRenderFrame(render);
-    startClipRecorder(render);
+    if (render.webCodecs) {
+      render.webCodecs.resumeAudio();
+      encodeWebCodecsVideoFrame(render, true);
+    } else {
+      startClipRecorder(render);
+    }
     startPlaybackLoop();
-    renderClipTools();
-    setStatus("Rendering proxy clip. Keep PECO open until it finishes.");
+    renderRenderMenu();
+    setStatus(`Rendering ${render.label.toLowerCase()}. Keep PECO open until it finishes.`);
     monitorClipRender(render);
   } catch (error) {
     failProxyClipRender(render, error);
   }
 }
 
+function createClipRenderRealm() {
+  const frame = document.createElement("iframe");
+  frame.hidden = true;
+  frame.setAttribute("aria-hidden", "true");
+  frame.src = "about:blank";
+  document.body.appendChild(frame);
+  if (!frame.contentWindow || !frame.contentDocument) {
+    frame.remove();
+    throw new Error("The browser could not isolate the video recorder.");
+  }
+  const audio = frame.contentDocument.createElement("audio");
+  const angle = audioMasterAngle();
+  audio.preload = "auto";
+  audio.playsInline = true;
+  audio.src = angle ? proxyUrlFor(angle) : "";
+  frame.contentDocument.body.appendChild(audio);
+  audio.load();
+  return { frame, window: frame.contentWindow, document: frame.contentDocument, audio };
+}
+
+async function createWebCodecsClipRecorder(render, audioTrack, dimensions, directSave) {
+  const videoConfigs = [
+    { codec: "vp09.00.10.08", muxerCodec: "V_VP9" },
+    { codec: "vp8", muxerCodec: "V_VP8" }
+  ];
+  let videoConfig = null;
+  for (const candidate of videoConfigs) {
+    const config = {
+      codec: candidate.codec,
+      width: dimensions.width,
+      height: dimensions.height,
+      bitrate: 4_000_000,
+      framerate: Math.min(CLIP_RENDER_FPS_CAP, Math.max(1, Math.round(render.fps))),
+      latencyMode: "realtime"
+    };
+    try {
+      const support = await VideoEncoder.isConfigSupported(config);
+      if (support.supported) {
+        videoConfig = { ...config, muxerCodec: candidate.muxerCodec };
+        break;
+      }
+    } catch {
+      // Try the next browser encoder.
+    }
+  }
+  if (!videoConfig) {
+    throw new Error("This browser does not provide a VP8 or VP9 video encoder.");
+  }
+  const audioSettings = audioTrack.getSettings?.() || {};
+  const audioConfig = {
+    codec: "opus",
+    sampleRate: Math.round(Number(audioSettings.sampleRate) || 48_000),
+    numberOfChannels: Math.max(1, Math.round(Number(audioSettings.channelCount) || 2)),
+    bitrate: 128_000
+  };
+  const audioSupport = await AudioEncoder.isConfigSupported(audioConfig);
+  if (!audioSupport.supported) {
+    throw new Error("This browser does not provide the Opus audio encoder needed for a clip render.");
+  }
+  const target = directSave
+    ? new WebMMuxer.StreamTarget({
+        chunked: true,
+        chunkSize: 4 * 1024 * 1024,
+        onData(data, position) {
+          const bytes = data.slice();
+          render.writeChain = render.writeChain.then(async () => {
+            await render.writable.write({ type: "write", position, data: bytes });
+            render.bytesWritten = Math.max(render.bytesWritten || 0, position + bytes.byteLength);
+          });
+        }
+      })
+    : new WebMMuxer.ArrayBufferTarget();
+  const muxer = new WebMMuxer.Muxer({
+    target,
+    video: {
+      codec: videoConfig.muxerCodec,
+      width: dimensions.width,
+      height: dimensions.height,
+      frameRate: videoConfig.framerate
+    },
+    audio: {
+      codec: "A_OPUS",
+      numberOfChannels: audioConfig.numberOfChannels,
+      sampleRate: audioConfig.sampleRate
+    },
+    firstTimestampBehavior: "strict"
+  });
+  const control = {
+    target,
+    muxer,
+    videoEncoder: null,
+    audioEncoder: null,
+    audioReader: null,
+    audioPump: null,
+    audioRunning: false,
+    audioOutputEnd: 0,
+    videoFrameIndex: 0,
+    stopped: false,
+    finished: false,
+    resumeAudio() {
+      this.audioRunning = true;
+    },
+    pauseAudio() {
+      this.audioRunning = false;
+    },
+    cleanup() {
+      this.stopped = true;
+      this.audioRunning = false;
+      this.audioReader?.cancel?.().catch(() => {});
+      try {
+        this.videoEncoder?.close?.();
+      } catch {}
+      try {
+        this.audioEncoder?.close?.();
+      } catch {}
+    }
+  };
+  control.videoEncoder = new VideoEncoder({
+    output: (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+    error: error => {
+      if (!control.stopped) {
+        failProxyClipRender(render, error);
+      }
+    }
+  });
+  control.audioEncoder = new AudioEncoder({
+    output: (chunk, metadata) => muxer.addAudioChunk(chunk, metadata),
+    error: error => {
+      if (!control.stopped) {
+        failProxyClipRender(render, error);
+      }
+    }
+  });
+  control.videoEncoder.configure(videoConfig);
+  control.audioEncoder.configure(audioConfig);
+  const processor = new MediaStreamTrackProcessor({ track: audioTrack });
+  control.audioReader = processor.readable.getReader();
+  control.audioPump = pumpWebCodecsAudio(control, render);
+  return control;
+}
+
+async function pumpWebCodecsAudio(control, render) {
+  try {
+    while (!control.stopped) {
+      const { value, done } = await control.audioReader.read();
+      if (done) {
+        break;
+      }
+      if (!control.audioRunning) {
+        value.close();
+        continue;
+      }
+      const duration = Math.max(1, Number(value.duration || value.numberOfFrames / value.sampleRate * 1_000_000));
+      const totalDuration = render.totalFrames / render.fps * 1_000_000;
+      while (
+        control.audioRunning
+        && control.audioOutputEnd < totalDuration
+        && control.audioOutputEnd > currentRenderedDurationMicroseconds(render) + 80_000
+      ) {
+        await new Promise(resolve => setTimeout(resolve, 8));
+      }
+      if (!control.audioRunning || control.audioOutputEnd >= totalDuration) {
+        value.close();
+        continue;
+      }
+      const timestamp = control.audioOutputEnd;
+      const rebased = cloneAudioDataAtTimestamp(value, timestamp);
+      value.close();
+      control.audioEncoder.encode(rebased);
+      rebased.close();
+      control.audioOutputEnd = timestamp + duration;
+    }
+  } catch (error) {
+    if (!control.stopped && clipRenderIsActive(render)) {
+      failProxyClipRender(render, error);
+    }
+  }
+}
+
+function currentRenderedDurationMicroseconds(render) {
+  const currentFrames = Math.max(0, Math.min(render.outFrame - render.inFrame, state.timelineFrame - render.inFrame));
+  return Math.max(0, (render.completedFrames + currentFrames) / render.fps * 1_000_000);
+}
+
+function encodeWebCodecsVideoFrame(render, force = false) {
+  const control = render.webCodecs;
+  if (!control || control.stopped || !render.canvas) {
+    return;
+  }
+  const currentFrames = Math.max(0, Math.min(render.outFrame - render.inFrame, state.timelineFrame - render.inFrame));
+  const targetFrames = Math.min(render.totalFrames, render.completedFrames + currentFrames + 1);
+  const frameDuration = 1_000_000 / Math.min(CLIP_RENDER_FPS_CAP, Math.max(1, Math.round(render.fps)));
+  while (control.videoFrameIndex < targetFrames && (force || control.videoEncoder.encodeQueueSize < 4)) {
+    const timestamp = Math.round(control.videoFrameIndex * frameDuration);
+    const frame = new VideoFrame(render.canvas, { timestamp, duration: Math.round(frameDuration) });
+    control.videoEncoder.encode(frame, {
+      keyFrame: control.videoFrameIndex % Math.max(1, Math.round(render.fps * 2)) === 0
+    });
+    frame.close();
+    control.videoFrameIndex += 1;
+    if (!force) {
+      break;
+    }
+  }
+}
+
+function cloneAudioDataAtTimestamp(audioData, timestamp) {
+  const planar = String(audioData.format || "").includes("planar");
+  const planeCount = planar ? audioData.numberOfChannels : 1;
+  const sizes = [];
+  let totalSize = 0;
+  for (let planeIndex = 0; planeIndex < planeCount; planeIndex += 1) {
+    const size = audioData.allocationSize({ planeIndex });
+    sizes.push(size);
+    totalSize += size;
+  }
+  const bytes = new Uint8Array(totalSize);
+  let offset = 0;
+  for (let planeIndex = 0; planeIndex < planeCount; planeIndex += 1) {
+    const size = sizes[planeIndex];
+    audioData.copyTo(bytes.subarray(offset, offset + size), { planeIndex });
+    offset += size;
+  }
+  return new AudioData({
+    format: audioData.format,
+    sampleRate: audioData.sampleRate,
+    numberOfFrames: audioData.numberOfFrames,
+    numberOfChannels: audioData.numberOfChannels,
+    timestamp,
+    data: bytes
+  });
+}
+
+function renderModeLabel(mode, segments) {
+  if (mode === "full") {
+    return "Full Review";
+  }
+  if (mode === "range") {
+    return "In / Out Range";
+  }
+  return `Clip Reel (${segments.length})`;
+}
+
+function renderOutputFilename(mode, segments, extension) {
+  const base = safeFilename(state.project?.name || "peco_review");
+  if (mode === "full") {
+    return `${base}_full_review.${extension}`;
+  }
+  if (mode === "range") {
+    return `${base}_range_${filenameTimecode(clipFrameTimecode(segments[0].inFrame))}-${filenameTimecode(clipFrameTimecode(segments[0].outFrame))}.${extension}`;
+  }
+  return `${base}_clip_reel_${segments.length}.${extension}`;
+}
+
 function clipRenderIsActive(render) {
   return Boolean(state.clipRender === render && !render.cancelled && !render.finalized && !render.error);
 }
 
-async function prepareClipMediaAtFrame(frame) {
+async function prepareClipMediaAtFrame(frame, renderAudio = null) {
   setTimelineFrame(frame, { syncVideos: true, forceDecisionListFollow: true });
   ensureProgramVideos();
   const audio = ensureAudioMaster();
@@ -3431,6 +4078,9 @@ async function prepareClipMediaAtFrame(frame) {
     throw new Error("Floater audio is unavailable in this review package.");
   }
   const seeks = [seekVideoElementToTimeline(audio, audioAngle)];
+  if (renderAudio) {
+    seeks.push(seekVideoElementToTimeline(renderAudio, audioAngle));
+  }
   for (const entry of state.programVideos.values()) {
     const angle = angleById(entry.angleId);
     if (angle) {
@@ -3494,50 +4144,111 @@ function clipCanvasDimensions() {
   };
 }
 
-async function createClipAudioCapture() {
-  const audio = ensureAudioMaster();
+async function createClipAudioCapture(audio = ensureAudioMaster(), renderWindow = window) {
   if (!audio) {
     return null;
   }
+  const AudioContextType = renderWindow.AudioContext || renderWindow.webkitAudioContext || window.AudioContext || window.webkitAudioContext;
   const capture = audio.captureStream || audio.mozCaptureStream;
+  if (typeof capture === "function" && typeof AudioContextType === "function") {
+    try {
+      const sourceStream = capture.call(audio);
+      const context = new AudioContextType();
+      const source = context.createMediaStreamSource(sourceStream);
+      const destination = context.createMediaStreamDestination();
+      source.connect(destination);
+      await context.resume();
+      const track = destination.stream.getAudioTracks()[0];
+      if (track) {
+        let cleaned = false;
+        return {
+          track,
+          sourceStream: destination.stream,
+          cleanup() {
+            if (cleaned) {
+              return;
+            }
+            cleaned = true;
+            try {
+              source.disconnect(destination);
+            } catch {
+              // The destination may already be disconnected during page teardown.
+            }
+            for (const streamTrack of destination.stream.getTracks()) {
+              streamTrack.stop();
+            }
+            context.close().catch(() => {});
+          }
+        };
+      }
+    } catch {
+      // Direct track capture below is the fallback for limited WebViews.
+    }
+  }
   if (typeof capture === "function") {
     try {
       const sourceStream = capture.call(audio);
       const sourceTrack = sourceStream.getAudioTracks()[0];
       if (sourceTrack) {
-        return { track: sourceTrack.clone(), sourceStream };
+        const track = sourceTrack.clone();
+        return {
+          track,
+          sourceStream,
+          cleanup() {
+            track.stop();
+          }
+        };
       }
     } catch {
-      // Web Audio below is the cross-browser fallback.
+      return null;
     }
   }
-  const AudioContextType = window.AudioContext || window.webkitAudioContext;
-  if (typeof AudioContextType !== "function") {
-    return null;
-  }
-  try {
-    if (!state.clipAudioGraph) {
-      const context = new AudioContextType();
-      const source = context.createMediaElementSource(audio);
-      const destination = context.createMediaStreamDestination();
-      source.connect(destination);
-      source.connect(context.destination);
-      state.clipAudioGraph = { context, source, destination };
+  if (typeof AudioContextType === "function") {
+    try {
+      if (!state.clipAudioGraph) {
+        const context = new AudioContextType();
+        const source = context.createMediaElementSource(audio);
+        source.connect(context.destination);
+        state.clipAudioGraph = { context, source };
+      }
+      await state.clipAudioGraph.context.resume();
+      const destination = state.clipAudioGraph.context.createMediaStreamDestination();
+      state.clipAudioGraph.source.connect(destination);
+      const track = destination.stream.getAudioTracks()[0];
+      if (track) {
+        let cleaned = false;
+        return {
+          track,
+          sourceStream: destination.stream,
+          cleanup() {
+            if (cleaned) {
+              return;
+            }
+            cleaned = true;
+            try {
+              state.clipAudioGraph?.source?.disconnect(destination);
+            } catch {
+              // The destination may already be disconnected during page teardown.
+            }
+            for (const streamTrack of destination.stream.getTracks()) {
+              streamTrack.stop();
+            }
+          }
+        };
+      }
+    } catch {
+      return null;
     }
-    await state.clipAudioGraph.context.resume();
-    const track = state.clipAudioGraph.destination.stream.getAudioTracks()[0];
-    return track ? { track: track.clone(), sourceStream: state.clipAudioGraph.destination.stream } : null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
-function createClipMediaRecorder(stream, profiles) {
+function createClipMediaRecorder(stream, profiles, RecorderType = MediaRecorder) {
   for (const profile of profiles) {
     try {
       return {
         profile,
-        recorder: new MediaRecorder(stream, {
+        recorder: new RecorderType(stream, {
           mimeType: profile.mimeType,
           videoBitsPerSecond: 4_000_000,
           audioBitsPerSecond: 128_000
@@ -3545,7 +4256,7 @@ function createClipMediaRecorder(stream, profiles) {
       };
     } catch {
       try {
-        return { profile, recorder: new MediaRecorder(stream, { mimeType: profile.mimeType }) };
+        return { profile, recorder: new RecorderType(stream, { mimeType: profile.mimeType }) };
       } catch {
         // Try the next browser-supported recording profile.
       }
@@ -3561,7 +4272,19 @@ function startClipRecorder(render) {
   }, { once: true });
   recorder.addEventListener("dataavailable", event => {
     if (event.data?.size) {
-      render.chunks.push(event.data);
+      if (render.writable) {
+        render.writeChain = render.writeChain.then(async () => {
+          await render.writable.write(event.data);
+          render.bytesWritten = (render.bytesWritten || 0) + event.data.size;
+        });
+        render.writeChain.catch(error => {
+          if (clipRenderIsActive(render)) {
+            failProxyClipRender(render, error);
+          }
+        });
+      } else {
+        render.chunks.push(event.data);
+      }
     }
   });
   recorder.addEventListener("stop", () => finalizeProxyClipRender(render), { once: true });
@@ -3576,17 +4299,22 @@ function startClipRecorder(render) {
 }
 
 function monitorClipRender(render) {
-  if (state.clipRender !== render || render.cancelled || render.error) {
+  if (state.clipRender !== render || render.cancelled || render.error || render.transitioning) {
     return;
   }
   drawClipRenderFrame(render);
-  const span = Math.max(1, render.outFrame - render.inFrame);
-  render.progress = Math.max(0, Math.min(1, (state.timelineFrame - render.inFrame) / span));
+  encodeWebCodecsVideoFrame(render);
+  const currentFrames = Math.max(0, Math.min(render.outFrame - render.inFrame, state.timelineFrame - render.inFrame));
+  render.progress = Math.max(0, Math.min(1, (render.completedFrames + currentFrames) / Math.max(1, render.totalFrames)));
   elements.clipRenderProgress.value = render.progress;
   const percent = Math.round(render.progress * 100);
-  elements.clipRangeLabel.textContent = `Rendering ${percent}% | ${render.inTimecode} to ${render.outTimecode}`;
+  elements.renderMenuSummary.textContent = `Rendering ${percent}% | ${render.label}`;
   if (state.timelineFrame >= render.outFrame) {
-    stopProxyClipRecorder(render);
+    if (render.segmentIndex < render.segments.length - 1) {
+      advanceClipRenderSegment(render);
+    } else {
+      stopProxyClipRecorder(render);
+    }
     return;
   }
   if (!state.isPlaying) {
@@ -3594,6 +4322,105 @@ function monitorClipRender(render) {
     return;
   }
   render.canvasRaf = requestAnimationFrame(() => monitorClipRender(render));
+}
+
+async function advanceClipRenderSegment(render) {
+  if (!clipRenderIsActive(render) || render.transitioning) {
+    return;
+  }
+  render.transitioning = true;
+  cancelAnimationFrame(render.canvasRaf);
+  render.canvasRaf = 0;
+  try {
+    if (render.webCodecs) {
+      render.webCodecs.pauseAudio();
+    } else {
+      await setClipRecorderPaused(render.recorder, true);
+    }
+    if (!clipRenderIsActive(render)) {
+      return;
+    }
+    pausePlayback({ silent: true });
+    render.completedFrames += Math.max(0, render.outFrame - render.inFrame);
+    render.segmentIndex += 1;
+    const segment = render.segments[render.segmentIndex];
+    render.inFrame = segment.inFrame;
+    render.outFrame = segment.outFrame;
+    await prepareClipMediaAtFrame(segment.inFrame, render.audio);
+    if (!clipRenderIsActive(render)) {
+      return;
+    }
+    drawClipRenderFrame(render);
+    state.isPlaying = true;
+    enableDecisionListAutoFollow({ center: true });
+    enableMarkerListAutoFollow({ center: true });
+    await playSyncedProgramVideos();
+    if (!clipRenderIsActive(render)) {
+      pausePlayback({ silent: true });
+      return;
+    }
+    await render.audio.play();
+    for (const preview of state.gridVideos.values()) {
+      preview.video.play().catch(() => {});
+    }
+    startPlaybackLoop();
+    if (render.webCodecs) {
+      render.webCodecs.resumeAudio();
+    } else {
+      await setClipRecorderPaused(render.recorder, false);
+    }
+    render.transitioning = false;
+    monitorClipRender(render);
+  } catch (error) {
+    render.transitioning = false;
+    failProxyClipRender(render, error);
+  }
+}
+
+function setClipRecorderPaused(recorder, paused) {
+  if (!recorder || recorder.state === "inactive") {
+    return Promise.reject(new Error("The clip recorder stopped between reel segments."));
+  }
+  const targetState = paused ? "paused" : "recording";
+  if (recorder.state === targetState) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const eventName = paused ? "pause" : "resume";
+    const timer = setTimeout(() => {
+      cleanup();
+      if (recorder.state === targetState) {
+        resolve();
+      } else {
+        reject(new Error(`The clip recorder could not ${paused ? "pause" : "resume"}.`));
+      }
+    }, 1500);
+    const cleanup = () => {
+      clearTimeout(timer);
+      recorder.removeEventListener(eventName, finish);
+      recorder.removeEventListener("error", fail);
+    };
+    const finish = () => {
+      cleanup();
+      resolve();
+    };
+    const fail = () => {
+      cleanup();
+      reject(new Error(`The clip recorder could not ${paused ? "pause" : "resume"}.`));
+    };
+    recorder.addEventListener(eventName, finish, { once: true });
+    recorder.addEventListener("error", fail, { once: true });
+    try {
+      if (paused) {
+        recorder.pause();
+      } else {
+        recorder.resume();
+      }
+    } catch (error) {
+      cleanup();
+      reject(error);
+    }
+  });
 }
 
 function drawClipRenderFrame(render) {
@@ -3621,12 +4448,17 @@ function drawClipRenderFrame(render) {
 }
 
 function stopProxyClipRecorder(render) {
-  if (!render || render.finalized) {
+  if (!render || render.finalized || render.finishing) {
     return;
   }
+  render.finishing = true;
   cancelAnimationFrame(render.canvasRaf);
   render.canvasRaf = 0;
   pausePlayback({ silent: true });
+  if (render.webCodecs) {
+    finishWebCodecsClipRender(render);
+    return;
+  }
   if (render.recorder?.state && render.recorder.state !== "inactive") {
     try {
       render.recorder.stop();
@@ -3636,6 +4468,39 @@ function stopProxyClipRecorder(render) {
     }
   }
   finalizeProxyClipRender(render);
+}
+
+async function finishWebCodecsClipRender(render) {
+  const control = render.webCodecs;
+  try {
+    if (!render.cancelled && !render.error) {
+      drawClipRenderFrame(render);
+      encodeWebCodecsVideoFrame(render, true);
+      control.pauseAudio();
+      control.stopped = true;
+      await control.audioReader.cancel().catch(() => {});
+      await control.audioPump.catch(() => {});
+      await control.videoEncoder.flush();
+      await control.audioEncoder.flush();
+      control.muxer.finalize();
+      if (control.target instanceof WebMMuxer.ArrayBufferTarget) {
+        const buffer = control.target.buffer;
+        render.chunks = [new Blob([buffer], { type: "video/webm" })];
+        render.bytesWritten = buffer.byteLength;
+      } else {
+        render.bytesWritten = Math.max(1024, render.bytesWritten || 0);
+      }
+      control.videoEncoder.close();
+      control.audioEncoder.close();
+      control.finished = true;
+    } else {
+      control.cleanup();
+    }
+  } catch (error) {
+    render.error = render.error || error;
+    control.cleanup();
+  }
+  await finalizeProxyClipRender(render);
 }
 
 function cancelProxyClipRender(options = {}) {
@@ -3670,10 +4535,48 @@ async function finalizeProxyClipRender(render) {
   for (const track of render.outputStream?.getTracks?.() || []) {
     track.stop();
   }
+  for (const track of render.sourceOutputStream?.getTracks?.() || []) {
+    track.stop();
+  }
+  render.audioCleanup?.();
+  if (typeof render.previousMasterMuted === "boolean") {
+    elements.audioMaster.muted = render.previousMasterMuted;
+  }
+  try {
+    render.audio?.pause?.();
+    render.audio?.removeAttribute?.("src");
+    render.audio?.load?.();
+  } catch {
+    // Render-only audio cleanup must not block delivery.
+  }
+  render.realm?.frame?.remove?.();
   try {
     await render.wakeLock?.release?.();
   } catch {
     // Screen wake lock is best effort.
+  }
+  try {
+    await render.writeChain;
+  } catch (error) {
+    if (!render.cancelled) {
+      render.error = render.error || error;
+    }
+  }
+  if (render.writable) {
+    try {
+      if (render.cancelled || render.error || (render.bytesWritten || 0) < 1024) {
+        if (!render.cancelled && !render.error) {
+          render.error = new Error("The browser produced an empty video file.");
+        }
+        await render.writable.abort();
+      } else {
+        await render.writable.close();
+      }
+    } catch (error) {
+      if (!render.cancelled) {
+        render.error = render.error || error;
+      }
+    }
   }
   if (state.clipRender === render) {
     state.clipRender = null;
@@ -3683,15 +4586,20 @@ async function finalizeProxyClipRender(render) {
     setTimelineFrame(Math.min(render.outFrame, maxFrame()), { syncVideos: true, persist: true });
   }
   renderTransport();
-  renderClipTools();
+  renderRenderMenu();
   if (render.cancelled) {
     if (!render.quietCancel) {
-      setStatus("Proxy clip render canceled.");
+      setStatus("Video render canceled.");
     }
     return;
   }
   if (render.error) {
     setStatus(`Clip render failed: ${render.error.message}`, true);
+    return;
+  }
+  const duration = render.totalFrames / render.fps;
+  if (render.writable) {
+    setStatus(`Rendered ${formatClipDuration(duration)} ${render.label.toLowerCase()} to ${render.filename}.`);
     return;
   }
   const mimeType = render.recorder?.mimeType || render.profile?.mimeType || "video/webm";
@@ -3700,17 +4608,15 @@ async function finalizeProxyClipRender(render) {
     setStatus("Clip render failed: the browser produced an empty video file.", true);
     return;
   }
-  const extension = render.profile?.extension || (mimeType.includes("mp4") ? "mp4" : "webm");
-  const filename = `${safeFilename(render.projectName)}_clip_${filenameTimecode(render.inTimecode)}-${filenameTimecode(render.outTimecode)}.${extension}`;
-  const delivery = await shareOrDownloadBlob(filename, blob, {
-    title: `${render.projectName} proxy clip`,
-    text: "Proxy-quality clip rendered from PECO Mobile Review"
+  const delivery = await shareOrDownloadBlob(render.filename, blob, {
+    title: `${render.projectName} ${render.label}`,
+    text: "Proxy-quality video rendered from PECO Mobile Review"
   });
   if (delivery.cancelled) {
     setStatus("Proxy clip sharing canceled. Render range was kept.");
     return;
   }
-  setStatus(`Rendered ${formatClipDuration((render.outFrame - render.inFrame) / render.fps)} proxy clip: ${filename}`);
+  setStatus(`Rendered ${formatClipDuration(duration)} ${render.label.toLowerCase()}: ${render.filename}`);
 }
 
 function filenameTimecode(value) {
@@ -3879,6 +4785,16 @@ function buildCutsPayload() {
         recorded_at: decision.recordedAt
       };
     }),
+    review_clips: state.clips.map((clip, index) => ({
+      clip_id: clip.id,
+      clip_index: index + 1,
+      in_frame: clip.inFrame,
+      out_frame: clip.outFrame,
+      in_timecode: framesToTimecode(project.timelineStartFrame + clip.inFrame, project.fps),
+      out_timecode: framesToTimecode(project.timelineStartFrame + clip.outFrame, project.fps),
+      duration_frames: clip.outFrame - clip.inFrame,
+      created_at: clip.createdAt
+    })),
     review_markers: state.markers.map(marker => {
       const sourceAngle = project.angles[0];
       const sourceFrame = marker.frame + Number(sourceAngle?.syncOffsetFrames || 0);
@@ -4122,12 +5038,18 @@ function buildProjectStatePayload() {
     selected_decision_frame: state.selectedDecisionFrame,
     active_angle_id: state.activeAngleId,
     reviewer_name: elements.reviewerInput.value.trim(),
-    clip_range: Number.isInteger(state.clipInFrame) && Number.isInteger(state.clipOutFrame)
+    export_range: exportRangeIsValid()
       ? {
-          in_frame: state.clipInFrame,
-          out_frame: state.clipOutFrame
+          in_frame: state.exportInFrame,
+          out_frame: state.exportOutFrame
         }
       : null,
+    clip_ranges: state.clips.map(clip => ({
+      clip_id: clip.id,
+      in_frame: clip.inFrame,
+      out_frame: clip.outFrame,
+      created_at: clip.createdAt
+    })),
     decisions: compactDecisions().map(decision => {
       const angle = angleById(decision.angleId);
       return {
@@ -4259,8 +5181,24 @@ function restoreProjectState(project) {
       });
     }
     state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
-    const savedClipIn = Math.round(Number(saved.clip_range?.in_frame));
-    const savedClipOut = Math.round(Number(saved.clip_range?.out_frame));
+    state.clips = [];
+    for (const row of Array.isArray(saved.clip_ranges) ? saved.clip_ranges : []) {
+      const inFrame = Math.round(Number(row.in_frame ?? row.inFrame));
+      const outFrame = Math.round(Number(row.out_frame ?? row.outFrame));
+      if (!Number.isFinite(inFrame) || !Number.isFinite(outFrame) || inFrame < 0 || outFrame <= inFrame || outFrame >= project.durationFrames) {
+        continue;
+      }
+      state.clips.push({
+        id: String(row.clip_id || row.id || `clip_${cryptoRandomId()}`),
+        inFrame,
+        outFrame,
+        createdAt: String(row.created_at || row.createdAt || saved.saved_at || new Date().toISOString())
+      });
+    }
+    state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+    const savedRange = saved.export_range || saved.clip_range;
+    const savedClipIn = Math.round(Number(savedRange?.in_frame));
+    const savedClipOut = Math.round(Number(savedRange?.out_frame));
     if (
       Number.isFinite(savedClipIn)
       && Number.isFinite(savedClipOut)
@@ -4268,8 +5206,8 @@ function restoreProjectState(project) {
       && savedClipOut > savedClipIn
       && savedClipOut < project.durationFrames
     ) {
-      state.clipInFrame = savedClipIn;
-      state.clipOutFrame = savedClipOut;
+      state.exportInFrame = savedClipIn;
+      state.exportOutFrame = savedClipOut;
     }
     if (saved.reviewer_name && !elements.reviewerInput.value.trim()) {
       elements.reviewerInput.value = String(saved.reviewer_name);
