@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#10110f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>PECO Mobile Reviewer</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/peco-mobile-180.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand">PECO Mobile Reviewer</div>
+        <div class="project-line" id="projectLine">No package loaded</div>
+      </div>
+      <div class="top-actions">
+        <input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer">
+        <button class="secondary" id="loadPackageButton" type="button">Import Match</button>
+        <button class="secondary" id="loadFolderButton" type="button">Load Folder</button>
+        <button class="secondary" id="loadManifestButton" type="button">Manifest</button>
+        <button class="secondary" id="loadProxyButton" type="button">Proxy Files</button>
+        <button class="secondary" id="saveStateButton" type="button" disabled>Save State</button>
+        <button class="secondary" id="removePackageButton" type="button" hidden>Remove Match</button>
+        <button class="primary" id="exportButton" type="button" disabled>Export Decisions</button>
+        <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
+      </div>
+      <input id="packageInput" type="file" accept=".json,application/json,video/*,.mp4,.mov,.m4v,.webm,.mkv,.pecoreview" multiple hidden>
+      <input id="folderInput" type="file" webkitdirectory multiple hidden>
+      <input id="manifestInput" type="file" accept=".json,application/json" hidden>
+      <input id="proxyInput" type="file" accept="video/*" multiple hidden>
+    </header>
+
+    <main class="workspace">
+      <section class="viewer-panel" aria-label="Program viewer">
+        <div class="viewer-frame" id="viewerFrame">
+          <div class="program-video-stack" id="programVideoStack">
+            <video id="mainVideo" class="program-video active" playsinline preload="auto"></video>
+            <audio id="audioMaster" playsinline preload="auto"></audio>
+          </div>
+          <div class="viewer-empty" id="viewerEmpty">
+            <span>Preview</span>
+          </div>
+          <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
+          <div class="viewer-status">
+            <span id="activeAngleLabel">No angle</span>
+            <span id="timecodeLabel">00:00:00:00</span>
+          </div>
+        </div>
+        <input class="timeline-slider" id="timelineSlider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Timeline scrubber">
+      </section>
+
+      <aside class="side-panel" aria-label="Angles and decisions">
+        <div class="panel-head">
+          <span>Angles</span>
+          <label class="toggle-row">
+            <input id="gridToggle" type="checkbox" disabled>
+            <span>Grid</span>
+          </label>
+        </div>
+        <div class="angle-grid" id="angleGrid"></div>
+        <div class="panel-head decisions-head">
+          <span>Decisions</span>
+          <div class="panel-actions">
+            <button class="secondary compact" id="undoDecisionButton" type="button" disabled>Undo</button>
+            <button class="secondary compact" id="redoDecisionButton" type="button" disabled>Redo</button>
+          </div>
+        </div>
+        <ol class="decision-list" id="decisionList"></ol>
+      </aside>
+    </main>
+
+    <footer class="control-deck">
+      <div class="mobile-options-row" aria-label="Mobile package and decision options">
+        <button class="mobile-option" id="mobileLoadPackageButton" type="button">Import</button>
+        <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save State</button>
+        <button class="mobile-option" id="mobileRemovePackageButton" type="button" hidden>Remove</button>
+        <button class="mobile-option" id="mobileUndoDecisionButton" type="button" disabled>Undo</button>
+        <button class="mobile-option" id="mobileRedoDecisionButton" type="button" disabled>Redo</button>
+        <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
+        <button class="mobile-option" id="mobileExportButton" type="button" disabled>Export</button>
+      </div>
+
+      <div class="transport-row">
+        <button class="transport" id="jumpStartButton" type="button" disabled>Start</button>
+        <button class="transport" id="backTenButton" type="button" disabled>-10</button>
+        <button class="transport" id="backOneButton" type="button" disabled>-1</button>
+        <button class="play" id="playButton" type="button" disabled>Play</button>
+        <button class="transport" id="forwardOneButton" type="button" disabled>+1</button>
+        <button class="transport" id="forwardTenButton" type="button" disabled>+10</button>
+        <button class="transport" id="jumpEndButton" type="button" disabled>End</button>
+      </div>
+
+      <div class="mobile-angle-preview-grid" id="mobileAnglePreviewGrid" aria-label="Camera previews"></div>
+
+      <div class="angle-buttons" id="angleButtons"></div>
+
+      <div class="fine-tune-panel">
+        <div class="boundary-row" aria-label="Cut boundary controls">
+          <button class="transport" id="previousDecisionButton" type="button" disabled>Prev Cut</button>
+          <button class="transport" id="nudgeLeftFiveButton" type="button" disabled>-5f</button>
+          <button class="transport" id="nudgeLeftOneButton" type="button" disabled>-1f</button>
+          <div class="boundary-readout" id="boundaryReadout">No cut selected</div>
+          <button class="transport" id="nudgeRightOneButton" type="button" disabled>+1f</button>
+          <button class="transport" id="nudgeRightFiveButton" type="button" disabled>+5f</button>
+          <button class="transport" id="nextDecisionButton" type="button" disabled>Next Cut</button>
+        </div>
+      </div>
+
+      <ol class="mobile-decision-list" id="mobileDecisionList" aria-label="Applied camera switch timeline"></ol>
+
+      <div class="jog-row">
+        <div class="jog-label" id="jogReadout">Center stop</div>
+        <div class="jog-wheel" id="jogWheel" role="slider" aria-label="Jog shuttle wheel" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0">
+          <div class="jog-track"></div>
+          <div class="jog-knob" id="jogKnob"></div>
+          <div class="jog-center"></div>
+        </div>
+      </div>
+
+      <div class="mobile-timeline-row" aria-label="Full timeline seeker">
+        <span id="mobileTimecodeLabel">00:00:00:00</span>
+        <input class="mobile-timeline-slider" id="mobileTimelineSlider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Full timeline scrubber">
+      </div>
+
+      <div class="status-line" id="statusContainer">
+        <span id="statusLine">Ready.</span>
+        <span class="app-version" id="appVersionLabel"></span>
+      </div>
+    </footer>
+
+    <div class="decision-selection-menu hidden" id="decisionSelectionMenu" role="dialog" aria-live="polite" aria-label="Selected camera cuts">
+      <div class="selection-summary" id="selectionSummary">No cuts selected</div>
+      <button class="primary danger-action" id="deleteSelectedDecisionsButton" type="button">Delete</button>
+      <button class="secondary" id="clearDecisionSelectionButton" type="button">Close Menu</button>
+    </div>
+
+    <div class="preview-action-menu hidden" id="previewActionMenu" role="dialog" aria-live="polite" aria-label="Add review marker">
+      <div class="selection-summary" id="previewActionSummary">Add marker</div>
+      <textarea id="markerNoteInput" rows="3" placeholder="Note for Damian"></textarea>
+      <div class="menu-action-row">
+        <button class="primary" id="saveMarkerButton" type="button">Save Marker</button>
+        <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>
+      </div>
+    </div>
+
+    <script src="pecoreview-archive.js"></script>
+    <script src="browser-storage.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
