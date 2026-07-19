@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.1.15";
-const APP_VERSION_CODE = 16;
+const APP_VERSION = "0.1.16";
+const APP_VERSION_CODE = 17;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -1061,6 +1061,7 @@ function renderAngles() {
   if (!state.project) {
     return;
   }
+  elements.angleGrid.style.setProperty("--angle-count", String(Math.max(1, state.project.angles.length)));
   for (const angle of state.project.angles) {
     const button = document.createElement("button");
     button.type = "button";
@@ -1077,7 +1078,7 @@ function renderAngles() {
 
     elements.angleGrid.appendChild(createAnglePreviewTile(angle, {
       keyPrefix: "desktop",
-      showVideo: elements.gridToggle.checked,
+      showVideo: true,
       compact: false
     }));
     elements.mobileAnglePreviewGrid.appendChild(createAnglePreviewTile(angle, {
@@ -3024,10 +3025,26 @@ function handleKeydown(event) {
     stepFrames(event.shiftKey ? 10 : 1);
     return;
   }
+  const unmodifiedShortcut = !event.altKey && !event.ctrlKey && !event.metaKey;
+  if (unmodifiedShortcut && event.code === "KeyQ") {
+    event.preventDefault();
+    if (!event.repeat) {
+      removeCurrentCameraCut();
+    }
+    return;
+  }
+  if (unmodifiedShortcut && event.code === "Backquote") {
+    event.preventDefault();
+    if (!event.repeat) {
+      undoDecision();
+    }
+    return;
+  }
   const number = Number(event.key);
-  if (Number.isInteger(number) && number > 0) {
+  if (unmodifiedShortcut && !event.repeat && Number.isInteger(number) && number > 0) {
     const angle = state.project.angles.find(item => item.index === number);
     if (angle) {
+      event.preventDefault();
       switchAngle(angle.id);
     }
   }
