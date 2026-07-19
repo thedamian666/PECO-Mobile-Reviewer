@@ -23,6 +23,7 @@
         <button class="secondary" id="reviewLibraryButton" type="button">Reviews</button>
         <button class="secondary" id="saveStateButton" type="button" disabled>Save Now</button>
         <button class="secondary" id="removePackageButton" type="button" hidden>Remove Review</button>
+        <button class="secondary" id="clipToolsButton" type="button" title="Mark a range and render a proxy-quality video clip" disabled>Create Clip</button>
         <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
         <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
       </div>
@@ -84,6 +85,7 @@
         <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" title="Undo last edit (Ctrl+Z or Backtick)" aria-keyshortcuts="Control+Z Meta+Z Backquote" disabled>Undo</button>
         <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
         <button class="mobile-option camera-review-only" id="usePreviousAngleButton" type="button" title="Remove this cut and continue the previous camera angle (Q)" aria-keyshortcuts="Q" disabled>Use Previous</button>
+        <button class="mobile-option" id="mobileClipToolsButton" type="button" disabled>Clip</button>
         <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
         <button class="mobile-option" id="mobileExportButton" type="button" disabled>Send Back</button>
       </div>
@@ -126,6 +128,19 @@
           <div class="jog-knob" id="jogKnob"></div>
           <div class="jog-center"></div>
         </div>
+      </div>
+
+      <div class="clip-toolbar" id="clipToolbar" aria-label="Create proxy clip" hidden>
+        <div class="clip-range-readout">
+          <strong>Create Clip</strong>
+          <span id="clipRangeLabel">Set a start and end</span>
+        </div>
+        <button class="secondary compact" id="setClipStartButton" type="button" title="Set clip start at the playhead (I)" aria-keyshortcuts="I">Set Start</button>
+        <button class="secondary compact" id="setClipEndButton" type="button" title="Set clip end at the playhead (O)" aria-keyshortcuts="O">Set End</button>
+        <button class="primary compact" id="renderClipButton" type="button" disabled>Render Proxy Clip</button>
+        <button class="secondary compact danger-action" id="cancelClipRenderButton" type="button" hidden>Cancel Render</button>
+        <button class="secondary compact clip-close-button" id="closeClipToolsButton" type="button" title="Close clip controls" aria-label="Close clip controls">&times;</button>
+        <progress class="clip-render-progress" id="clipRenderProgress" max="1" value="0" hidden></progress>
       </div>
 
       <div class="mobile-timeline-row" aria-label="Full timeline seeker">

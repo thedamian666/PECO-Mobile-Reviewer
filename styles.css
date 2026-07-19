@@ -226,6 +226,7 @@ body.project-empty-mode .timeline-slider,
 body.project-empty-mode .control-deck,
 body.project-empty-mode #saveStateButton,
 body.project-empty-mode #exportButton,
+body.project-empty-mode #clipToolsButton,
 body.project-empty-mode #removePackageButton {
   display: none;
 }
@@ -708,6 +709,64 @@ body.notes-only-mode .side-panel {
 
 .jog-wheel.dragging .jog-knob {
   transition: none;
+}
+
+.clip-toolbar {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) auto auto auto auto auto;
+  gap: 6px;
+  align-items: center;
+  background: #151813;
+}
+
+.clip-toolbar[hidden],
+.clip-render-progress[hidden] {
+  display: none !important;
+}
+
+.clip-range-readout {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.clip-range-readout strong {
+  font-size: 12px;
+}
+
+.clip-range-readout span {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-close-button {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.clip-render-progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 5px;
+  accent-color: var(--accent);
+}
+
+body.clip-rendering .topbar,
+body.clip-rendering .workspace,
+body.clip-rendering .control-deck > :not(.clip-toolbar) {
+  pointer-events: none;
+  opacity: 0.72;
 }
 
 .status-line {
@@ -1584,6 +1643,7 @@ body.notes-only-mode .side-panel {
   grid-template-areas:
     "transport options jog"
     "status status status"
+    "clip clip clip"
     "notes notes notes"
     "decisions decisions decisions"
     "buffer buffer buffer";
@@ -1670,6 +1730,10 @@ body.notes-only-mode .side-panel {
   min-height: 18px;
   align-items: center;
   font-size: 11px;
+}
+
+.clip-toolbar {
+  grid-area: clip;
 }
 
 .mobile-marker-list {
@@ -1808,6 +1872,7 @@ body.notes-only-mode .side-panel {
       "transport"
       "jog"
       "status"
+      "clip"
       "notes"
       "decisions"
       "buffer";
@@ -1828,7 +1893,7 @@ body.notes-only-mode .side-panel {
     grid-area: options;
     min-height: 30px;
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
     gap: 1px;
   }
 
@@ -1892,6 +1957,28 @@ body.notes-only-mode .side-panel {
     font-size: 10px;
   }
 
+  .clip-toolbar {
+    grid-area: clip;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 34px;
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .clip-range-readout {
+    grid-column: 1 / -1;
+  }
+
+  .clip-toolbar button {
+    min-height: 30px;
+    padding-inline: 3px;
+    font-size: 10px;
+    line-height: 1.05;
+  }
+
+  .clip-close-button {
+    font-size: 18px !important;
+  }
+
   .mobile-marker-list:not(:empty) {
     grid-area: notes;
     min-height: 38px;
@@ -1920,6 +2007,7 @@ body.notes-only-mode .side-panel {
       "transport"
       "jog"
       "status"
+      "clip"
       "notes"
       "buffer";
   }
@@ -1928,7 +2016,7 @@ body.notes-only-mode .side-panel {
 @media (max-height: 560px) and (pointer: coarse) and (orientation: landscape) {
   body {
     grid-template-columns: minmax(0, 1fr) clamp(150px, 28vw, 260px);
-    grid-template-rows: minmax(0, 1fr) auto auto auto auto auto auto auto;
+    grid-template-rows: minmax(0, 1fr) auto auto auto auto auto auto auto auto;
   }
 
   .workspace {
@@ -1942,7 +2030,7 @@ body.notes-only-mode .side-panel {
 
   .mobile-angle-preview-grid {
     grid-column: 2;
-    grid-row: 1 / 9;
+    grid-row: 1 / 10;
     min-height: 0;
     height: auto;
     max-height: none;
@@ -1968,19 +2056,24 @@ body.notes-only-mode .side-panel {
     grid-row: 5;
   }
 
-  .mobile-marker-list:not(:empty) {
+  .clip-toolbar {
     grid-column: 1;
     grid-row: 6;
   }
 
-  .mobile-decision-list {
+  .mobile-marker-list:not(:empty) {
     grid-column: 1;
     grid-row: 7;
   }
 
-  .mobile-timeline-row {
+  .mobile-decision-list {
     grid-column: 1;
     grid-row: 8;
+  }
+
+  .mobile-timeline-row {
+    grid-column: 1;
+    grid-row: 9;
   }
 
   body.notes-only-mode {
@@ -1992,6 +2085,7 @@ body.notes-only-mode .side-panel {
   body.notes-only-mode .transport-row,
   body.notes-only-mode .jog-row,
   body.notes-only-mode .status-line,
+  body.notes-only-mode .clip-toolbar,
   body.notes-only-mode .mobile-marker-list,
   body.notes-only-mode .mobile-timeline-row {
     grid-column: 1;
