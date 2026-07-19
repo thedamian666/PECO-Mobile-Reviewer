@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.1.16";
-const APP_VERSION_CODE = 17;
+const APP_VERSION = "0.1.17";
+const APP_VERSION_CODE = 18;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -19,9 +19,9 @@ const PREVIEW_HARD_SYNC_TOLERANCE_SECONDS = 0.7;
 const SYNC_RATE_ADJUSTMENT = 0.035;
 const ANGLE_SWIPE_MIN_PX = 72;
 const ANGLE_SWIPE_MAX_VERTICAL_PX = 54;
-const JOG_MAX_DRAG_PX = 180;
-const JOG_CENTER_DEADZONE_PX = 10;
-const JOG_FRAME_SCRUB_PX = 72;
+const JOG_CENTER_DEADZONE_PX = 5;
+const JOG_MIN_TRAVEL_PX = 32;
+const JOG_INNER_PADDING_PX = 10;
 const JOG_SHUTTLE_SPEEDS = [2, 4, 8];
 const MARKER_CATEGORIES = [
   { id: "note", label: "Edit Note", color: "#38bdf8" },
@@ -88,6 +88,7 @@ const elements = {
   mobileRemovePackageButton: document.getElementById("mobileRemovePackageButton"),
   mobileUndoDecisionButton: document.getElementById("mobileUndoDecisionButton"),
   mobileRedoDecisionButton: document.getElementById("mobileRedoDecisionButton"),
+  usePreviousAngleButton: document.getElementById("usePreviousAngleButton"),
   mobileSaveServerButton: document.getElementById("mobileSaveServerButton"),
   mobileExportButton: document.getElementById("mobileExportButton"),
   jumpStartButton: document.getElementById("jumpStartButton"),
@@ -205,6 +206,7 @@ elements.mobileSaveStateButton.addEventListener("click", () => saveProjectState(
 elements.mobileRemovePackageButton.addEventListener("click", removeDownloadedMatch);
 elements.mobileUndoDecisionButton.addEventListener("click", undoDecision);
 elements.mobileRedoDecisionButton.addEventListener("click", redoDecision);
+elements.usePreviousAngleButton.addEventListener("click", removeCurrentCameraCut);
 elements.mobileSaveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileExportButton.addEventListener("click", exportCuts);
 elements.deleteSelectedDecisionsButton.addEventListener("click", deleteSelectedDecisionFrames);
@@ -1011,6 +1013,7 @@ function renderTransport() {
   ]) {
     button.disabled = !loaded || state.redoStack.length === 0;
   }
+  renderUsePreviousAngleButtonState();
   const serverSaveAvailable = state.server.available && supportsCameraDecisions();
   elements.saveServerButton.hidden = !serverSaveAvailable;
   elements.saveServerButton.disabled = !loaded || !serverSaveAvailable;
@@ -1019,6 +1022,13 @@ function renderTransport() {
   elements.mobileExportButton.disabled = !loaded;
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
+}
+
+function renderUsePreviousAngleButtonState() {
+  const active = isReady() && supportsCameraDecisions()
+    ? activeDecisionAtFrame(state.timelineFrame)
+    : null;
+  elements.usePreviousAngleButton.disabled = !active || active.frame <= 0;
 }
 
 function renderBoundaryControls() {
@@ -1715,6 +1725,7 @@ function renderTimeline() {
   elements.mobileTimelineSlider.max = String(maxFrame());
   elements.mobileTimelineSlider.value = String(state.timelineFrame);
   elements.viewerEmpty.classList.toggle("hidden", Boolean(angle && proxyAvailable(angle)));
+  renderUsePreviousAngleButtonState();
 }
 
 function wireMainVideo(options = {}) {
@@ -2831,55 +2842,64 @@ function stepFrames(delta) {
 }
 
 function startJog(event) {
-  if (!isReady()) {
+  if (!isReady() || event.button > 0) {
     return;
   }
   pausePlayback({ silent: true });
-  elements.jogWheel.setPointerCapture(event.pointerId);
+  const wheelRect = elements.jogWheel.getBoundingClientRect();
+  const knobRect = elements.jogKnob.getBoundingClientRect();
+  const maxDrag = Math.max(
+    JOG_MIN_TRAVEL_PX,
+    wheelRect.width / 2 - knobRect.width / 2 - JOG_INNER_PADDING_PX
+  );
+  try {
+    elements.jogWheel.setPointerCapture(event.pointerId);
+  } catch {
+    // Window-level pointer listeners still keep the shuttle responsive.
+  }
   elements.jogWheel.classList.add("dragging");
   state.jogDrag = {
     pointerId: event.pointerId,
-    startX: event.clientX,
-    startFrame: state.timelineFrame
+    centerX: wheelRect.left + wheelRect.width / 2,
+    maxDrag
   };
   window.addEventListener("pointermove", moveJog);
   window.addEventListener("pointerup", endJog, { once: true });
   window.addEventListener("pointercancel", endJog, { once: true });
+  moveJog(event);
 }
 
 function moveJog(event) {
-  if (!state.jogDrag) {
+  if (!state.jogDrag || event.pointerId !== state.jogDrag.pointerId) {
     return;
   }
-  const dx = event.clientX - state.jogDrag.startX;
-  const clamped = Math.max(-JOG_MAX_DRAG_PX, Math.min(JOG_MAX_DRAG_PX, dx));
+  const dx = event.clientX - state.jogDrag.centerX;
+  const maxDrag = state.jogDrag.maxDrag;
+  const clamped = Math.max(-maxDrag, Math.min(maxDrag, dx));
   elements.jogKnob.style.transform = `translateX(${clamped}px)`;
-  elements.jogWheel.setAttribute("aria-valuenow", String(Math.round((clamped / JOG_MAX_DRAG_PX) * 100)));
-  const abs = Math.abs(dx);
-  const sign = Math.sign(dx);
-  if (abs < JOG_CENTER_DEADZONE_PX) {
+  elements.jogWheel.setAttribute("aria-valuenow", String(Math.round((clamped / maxDrag) * 100)));
+  const abs = Math.abs(clamped);
+  const sign = Math.sign(clamped);
+  if (abs <= JOG_CENTER_DEADZONE_PX) {
     stopShuttle();
-    setTimelineFrame(state.jogDrag.startFrame, { syncVideos: true });
-    elements.jogReadout.textContent = "Center stop";
+    elements.jogReadout.textContent = "Stop";
+    elements.jogWheel.setAttribute("aria-valuetext", "Stopped");
     return;
   }
-  if (abs < JOG_FRAME_SCRUB_PX) {
-    stopShuttle();
-    const delta = Math.round(dx / 9);
-    setTimelineFrame(state.jogDrag.startFrame + delta, { syncVideos: true });
-    elements.jogReadout.textContent = `${delta >= 0 ? "+" : ""}${delta} frame`;
-    return;
-  }
-  const speedMultiplier = quantizedJogSpeed(abs);
+  const speedMultiplier = quantizedJogSpeed(abs, maxDrag);
   const speed = sign * state.project.fps * speedMultiplier;
   const audioNote = speed > 0 ? "" : " visual";
   elements.jogReadout.textContent = `${speed > 0 ? "Forward" : "Reverse"} ${speedMultiplier}x${audioNote}`;
+  elements.jogWheel.setAttribute(
+    "aria-valuetext",
+    `${speed > 0 ? "Forward" : "Reverse"} ${speedMultiplier} times speed${audioNote}`
+  );
   startShuttle(speed);
 }
 
-function quantizedJogSpeed(distance) {
-  const range = Math.max(1, JOG_MAX_DRAG_PX - JOG_FRAME_SCRUB_PX);
-  const normalized = Math.max(0, Math.min(1, (distance - JOG_FRAME_SCRUB_PX) / range));
+function quantizedJogSpeed(distance, maxDrag) {
+  const range = Math.max(1, maxDrag - JOG_CENTER_DEADZONE_PX);
+  const normalized = Math.max(0, Math.min(1, (distance - JOG_CENTER_DEADZONE_PX) / range));
   if (normalized < 0.34) {
     return JOG_SHUTTLE_SPEEDS[0];
   }
@@ -2895,7 +2915,8 @@ function endJog() {
   elements.jogWheel.classList.remove("dragging");
   elements.jogKnob.style.transform = "translateX(0)";
   elements.jogWheel.setAttribute("aria-valuenow", "0");
-  elements.jogReadout.textContent = "Center stop";
+  elements.jogWheel.setAttribute("aria-valuetext", "Stopped");
+  elements.jogReadout.textContent = "Stop";
   syncAllVideos();
   window.removeEventListener("pointermove", moveJog);
 }
@@ -2916,13 +2937,17 @@ function startShuttle(speed) {
   const tick = timestamp => {
     const elapsed = Math.min(0.08, (timestamp - state.lastShuttleTs) / 1000);
     state.lastShuttleTs = timestamp;
-    const forwardWithAudio = state.shuttleSpeed > 0 && !elements.audioMaster.paused;
+    const angle = audioMasterAngle();
+    const audioFrame = angle && elements.audioMaster.readyState >= 1
+      ? Math.round(elements.audioMaster.currentTime * state.project.fps - angle.proxySyncOffsetFrames)
+      : null;
+    const audioAligned = Number.isFinite(audioFrame)
+      && Math.abs(audioFrame - state.timelineFrame) <= Math.max(2, state.project.fps * 0.2);
+    const forwardWithAudio = state.shuttleSpeed > 0
+      && !elements.audioMaster.paused
+      && audioAligned;
     if (forwardWithAudio) {
-      const angle = audioMasterAngle();
-      const frame = angle
-        ? Math.round(elements.audioMaster.currentTime * state.project.fps - angle.proxySyncOffsetFrames)
-        : state.timelineFrame + state.shuttleSpeed * elapsed;
-      setTimelineFrame(frame, { syncVideos: false, followActiveDecision: true });
+      setTimelineFrame(audioFrame, { syncVideos: false, followActiveDecision: true });
       setReviewPlaybackRate(Math.max(1, Math.abs(state.shuttleSpeed / state.project.fps)));
       playFloaterJogAudio();
       maintainProgramVideoSync();
@@ -2931,6 +2956,9 @@ function startShuttle(speed) {
         syncVideos: true,
         followActiveDecision: true
       });
+      if (state.shuttleSpeed > 0) {
+        playFloaterJogAudio();
+      }
     }
     if (state.timelineFrame === 0 || state.timelineFrame === maxFrame()) {
       stopShuttle();
@@ -3008,6 +3036,25 @@ function setMediaPlaybackRate(media, rate) {
 
 function handleKeydown(event) {
   if (!isReady() || event.target.matches("input, textarea")) {
+    return;
+  }
+  const historyShortcut = !event.altKey && (event.ctrlKey || event.metaKey) && event.code === "KeyZ";
+  if (historyShortcut) {
+    event.preventDefault();
+    if (!event.repeat) {
+      if (event.shiftKey) {
+        redoDecision();
+      } else {
+        undoDecision();
+      }
+    }
+    return;
+  }
+  if (!event.altKey && (event.ctrlKey || event.metaKey) && event.code === "KeyY") {
+    event.preventDefault();
+    if (!event.repeat) {
+      redoDecision();
+    }
     return;
   }
   if (event.code === "Space") {

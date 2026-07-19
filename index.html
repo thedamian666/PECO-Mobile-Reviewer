@@ -62,8 +62,8 @@
         <div class="panel-head decisions-head camera-review-only">
           <span>Camera Choices</span>
           <div class="panel-actions">
-            <button class="secondary compact" id="undoDecisionButton" type="button" disabled>Undo</button>
-            <button class="secondary compact" id="redoDecisionButton" type="button" disabled>Redo</button>
+            <button class="secondary compact" id="undoDecisionButton" type="button" title="Undo last edit (Ctrl+Z or Backtick)" aria-keyshortcuts="Control+Z Meta+Z Backquote" disabled>Undo</button>
+            <button class="secondary compact" id="redoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
           </div>
         </div>
         <ol class="decision-list camera-review-only" id="decisionList"></ol>
@@ -81,8 +81,9 @@
         <button class="mobile-option" id="mobileReviewLibraryButton" type="button">Reviews</button>
         <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save</button>
         <button class="mobile-option" id="mobileRemovePackageButton" type="button" hidden>Remove</button>
-        <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" disabled>Undo</button>
-        <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" disabled>Redo</button>
+        <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" title="Undo last edit (Ctrl+Z or Backtick)" aria-keyshortcuts="Control+Z Meta+Z Backquote" disabled>Undo</button>
+        <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
+        <button class="mobile-option camera-review-only" id="usePreviousAngleButton" type="button" title="Remove this cut and continue the previous camera angle (Q)" aria-keyshortcuts="Q" disabled>Use Previous</button>
         <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
         <button class="mobile-option" id="mobileExportButton" type="button" disabled>Send Back</button>
       </div>
@@ -118,8 +119,9 @@
       <ol class="mobile-marker-list" id="mobileMarkerList" aria-label="Timecoded review notes"></ol>
 
       <div class="jog-row">
-        <div class="jog-label" id="jogReadout">Center stop</div>
-        <div class="jog-wheel" id="jogWheel" role="slider" aria-label="Jog shuttle wheel" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0">
+        <div class="jog-label"><span>Shuttle</span><strong id="jogReadout">Stop</strong></div>
+        <div class="jog-wheel" id="jogWheel" role="slider" title="Drag left for reverse or right for forward. Distance selects 2x, 4x, or 8x speed." aria-label="Playback shuttle: drag left for reverse or right for forward" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Stopped">
+          <div class="jog-scale" aria-hidden="true"><span>8x</span><span>4x</span><span>2x</span><span>Stop</span><span>2x</span><span>4x</span><span>8x</span></div>
           <div class="jog-track"></div>
           <div class="jog-knob" id="jogKnob"></div>
           <div class="jog-center"></div>

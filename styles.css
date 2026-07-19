@@ -630,6 +630,22 @@ body.notes-only-mode .side-panel {
   overflow-wrap: anywhere;
 }
 
+.jog-label span,
+.jog-label strong {
+  display: block;
+}
+
+.jog-label span {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.jog-label strong {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .jog-wheel {
   position: relative;
   height: 62px;
@@ -648,6 +664,21 @@ body.notes-only-mode .side-panel {
   height: 4px;
   border-radius: 3px;
   background: #3b4138;
+}
+
+.jog-scale {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 2px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  color: #9da497;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
 }
 
 .jog-center {
@@ -1548,7 +1579,8 @@ body.notes-only-mode .side-panel {
 .control-deck {
   padding: 6px 10px max(7px, env(safe-area-inset-bottom));
   gap: 5px 8px;
-  grid-template-columns: minmax(86px, 116px) auto minmax(240px, 1fr);
+  grid-template-columns: minmax(86px, 116px) auto minmax(320px, 520px);
+  justify-content: space-between;
   grid-template-areas:
     "transport options jog"
     "status status status"
@@ -1585,16 +1617,24 @@ body.notes-only-mode .side-panel {
 }
 
 #mobileUndoDecisionButton,
-#mobileRedoDecisionButton {
+#mobileRedoDecisionButton,
+#usePreviousAngleButton {
   display: block;
   min-height: 36px;
   padding: 0 11px;
 }
 
+#usePreviousAngleButton {
+  min-width: 104px;
+}
+
 .jog-row {
   grid-area: jog;
-  min-height: 36px;
-  grid-template-columns: minmax(70px, 96px) minmax(0, 1fr);
+  width: 100%;
+  max-width: 520px;
+  min-height: 44px;
+  justify-self: end;
+  grid-template-columns: minmax(76px, 104px) minmax(220px, 1fr);
   gap: 7px;
 }
 
@@ -1603,25 +1643,26 @@ body.notes-only-mode .side-panel {
 }
 
 .jog-wheel {
-  height: 36px;
+  height: 44px;
+  cursor: ew-resize;
 }
 
 .jog-track {
   left: 14px;
   right: 14px;
-  top: 16px;
+  top: 28px;
 }
 
 .jog-center {
-  top: 5px;
-  bottom: 5px;
+  top: 15px;
+  bottom: 4px;
 }
 
 .jog-knob {
-  top: 3px;
-  width: 28px;
-  height: 28px;
-  margin-left: -14px;
+  top: 14px;
+  width: 27px;
+  height: 27px;
+  margin-left: -13.5px;
 }
 
 .status-line {
@@ -1799,6 +1840,10 @@ body.notes-only-mode .side-panel {
     line-height: 1;
   }
 
+  #usePreviousAngleButton {
+    display: none;
+  }
+
   .transport-row {
     grid-area: transport;
     grid-template-columns: minmax(104px, 1fr);
@@ -1818,6 +1863,10 @@ body.notes-only-mode .side-panel {
 
   .jog-wheel {
     height: 34px;
+  }
+
+  .jog-scale {
+    display: none;
   }
 
   .jog-track {
