@@ -20,18 +20,13 @@
       <div class="top-actions">
         <input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer">
         <button class="secondary" id="loadPackageButton" type="button">Open Review</button>
-        <button class="secondary" id="loadFolderButton" type="button">Load Folder</button>
-        <button class="secondary" id="loadManifestButton" type="button">Manifest</button>
-        <button class="secondary" id="loadProxyButton" type="button">Proxy Files</button>
+        <button class="secondary" id="reviewLibraryButton" type="button">Reviews</button>
         <button class="secondary" id="saveStateButton" type="button" disabled>Save Now</button>
         <button class="secondary" id="removePackageButton" type="button" hidden>Remove Review</button>
         <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
         <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
       </div>
       <input id="packageInput" type="file" accept=".json,application/json,video/*,.mp4,.mov,.m4v,.webm,.mkv,.pecoreview" multiple hidden>
-      <input id="folderInput" type="file" webkitdirectory multiple hidden>
-      <input id="manifestInput" type="file" accept=".json,application/json" hidden>
-      <input id="proxyInput" type="file" accept="video/*" multiple hidden>
     </header>
 
     <main class="workspace">
@@ -42,7 +37,11 @@
             <audio id="audioMaster" playsinline preload="auto"></audio>
           </div>
           <div class="viewer-empty" id="viewerEmpty">
-            <span>Preview</span>
+            <strong>PECO Review</strong>
+            <div class="viewer-empty-actions">
+              <button class="primary" id="emptyOpenReviewButton" type="button">Open Review</button>
+              <button class="secondary" id="emptyReviewLibraryButton" type="button">Reviews</button>
+            </div>
           </div>
           <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
           <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
@@ -82,6 +81,7 @@
     <footer class="control-deck">
       <div class="mobile-options-row" aria-label="Mobile package and decision options">
         <button class="mobile-option" id="mobileLoadPackageButton" type="button">Open</button>
+        <button class="mobile-option" id="mobileReviewLibraryButton" type="button">Reviews</button>
         <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save</button>
         <button class="mobile-option" id="mobileRemovePackageButton" type="button" hidden>Remove</button>
         <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" disabled>Undo</button>
@@ -160,6 +160,16 @@
         <button class="primary" id="saveMarkerButton" type="button">Add Note</button>
         <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>
       </div>
+    </div>
+
+    <div class="review-library-menu hidden" id="reviewLibraryMenu" role="dialog" aria-modal="true" aria-label="Reviews on this device">
+      <div class="review-library-head">
+        <strong>Reviews</strong>
+        <button class="secondary compact" id="closeReviewLibraryButton" type="button">Close</button>
+      </div>
+      <ol class="review-library-list" id="reviewLibraryList"></ol>
+      <div class="review-library-empty" id="reviewLibraryEmpty">No downloaded reviews</div>
+      <button class="primary" id="libraryOpenReviewButton" type="button">Open New Review</button>
     </div>
 
     <script src="pecoreview-archive.js"></script>

@@ -1,12 +1,13 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.1.14";
-const APP_VERSION_CODE = 15;
+const APP_VERSION = "0.1.15";
+const APP_VERSION_CODE = 16;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
 const PROJECT_STATE_STORAGE_PREFIX = "peco_mobile_reviewer_project_state:";
+const PROJECT_RETURN_STORAGE_PREFIX = "peco_mobile_reviewer_return_sent:";
 const DOUBLE_TAP_MS = 320;
 const EDGE_TAP_RATIO = 0.35;
 const EDGE_SEEK_SECONDS = 5;
@@ -38,19 +39,16 @@ const WRESTLING_MARKER_CATEGORIES = [
 const elements = {
   projectLine: document.getElementById("projectLine"),
   loadPackageButton: document.getElementById("loadPackageButton"),
-  loadFolderButton: document.getElementById("loadFolderButton"),
-  loadManifestButton: document.getElementById("loadManifestButton"),
-  loadProxyButton: document.getElementById("loadProxyButton"),
+  reviewLibraryButton: document.getElementById("reviewLibraryButton"),
   saveStateButton: document.getElementById("saveStateButton"),
   removePackageButton: document.getElementById("removePackageButton"),
   exportButton: document.getElementById("exportButton"),
   saveServerButton: document.getElementById("saveServerButton"),
   reviewerInput: document.getElementById("reviewerInput"),
   packageInput: document.getElementById("packageInput"),
-  folderInput: document.getElementById("folderInput"),
-  manifestInput: document.getElementById("manifestInput"),
-  proxyInput: document.getElementById("proxyInput"),
   viewerFrame: document.getElementById("viewerFrame"),
+  emptyOpenReviewButton: document.getElementById("emptyOpenReviewButton"),
+  emptyReviewLibraryButton: document.getElementById("emptyReviewLibraryButton"),
   programVideoStack: document.getElementById("programVideoStack"),
   mainVideo: document.getElementById("mainVideo"),
   audioMaster: document.getElementById("audioMaster"),
@@ -85,6 +83,7 @@ const elements = {
   undoDecisionButton: document.getElementById("undoDecisionButton"),
   redoDecisionButton: document.getElementById("redoDecisionButton"),
   mobileLoadPackageButton: document.getElementById("mobileLoadPackageButton"),
+  mobileReviewLibraryButton: document.getElementById("mobileReviewLibraryButton"),
   mobileSaveStateButton: document.getElementById("mobileSaveStateButton"),
   mobileRemovePackageButton: document.getElementById("mobileRemovePackageButton"),
   mobileUndoDecisionButton: document.getElementById("mobileUndoDecisionButton"),
@@ -113,7 +112,12 @@ const elements = {
   mobileTimelineSlider: document.getElementById("mobileTimelineSlider"),
   statusLine: document.getElementById("statusLine"),
   statusContainer: document.getElementById("statusContainer"),
-  appVersionLabel: document.getElementById("appVersionLabel")
+  appVersionLabel: document.getElementById("appVersionLabel"),
+  reviewLibraryMenu: document.getElementById("reviewLibraryMenu"),
+  reviewLibraryList: document.getElementById("reviewLibraryList"),
+  reviewLibraryEmpty: document.getElementById("reviewLibraryEmpty"),
+  closeReviewLibraryButton: document.getElementById("closeReviewLibraryButton"),
+  libraryOpenReviewButton: document.getElementById("libraryOpenReviewButton")
 };
 
 const state = {
@@ -171,6 +175,7 @@ const state = {
   jogDrag: null,
   pendingMainVideoSwap: false,
   browserPackageStored: false,
+  reviewLibraryRows: [],
   server: {
     available: false,
     outputDir: "",
@@ -179,14 +184,23 @@ const state = {
 };
 
 elements.loadPackageButton.addEventListener("click", openPackageImport);
-elements.loadFolderButton.addEventListener("click", () => elements.folderInput.click());
-elements.loadManifestButton.addEventListener("click", () => elements.manifestInput.click());
-elements.loadProxyButton.addEventListener("click", () => elements.proxyInput.click());
+elements.emptyOpenReviewButton.addEventListener("pointerdown", event => event.stopPropagation());
+elements.emptyOpenReviewButton.addEventListener("click", event => {
+  event.stopPropagation();
+  openPackageImport();
+});
+elements.emptyReviewLibraryButton.addEventListener("pointerdown", event => event.stopPropagation());
+elements.emptyReviewLibraryButton.addEventListener("click", event => {
+  event.stopPropagation();
+  openReviewLibrary();
+});
+elements.reviewLibraryButton.addEventListener("click", openReviewLibrary);
 elements.saveStateButton.addEventListener("click", () => saveProjectState({ manual: true }));
 elements.removePackageButton.addEventListener("click", removeDownloadedMatch);
 elements.exportButton.addEventListener("click", exportCuts);
 elements.saveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileLoadPackageButton.addEventListener("click", openPackageImport);
+elements.mobileReviewLibraryButton.addEventListener("click", openReviewLibrary);
 elements.mobileSaveStateButton.addEventListener("click", () => saveProjectState({ manual: true }));
 elements.mobileRemovePackageButton.addEventListener("click", removeDownloadedMatch);
 elements.mobileUndoDecisionButton.addEventListener("click", undoDecision);
@@ -206,11 +220,13 @@ elements.addNoteButton.addEventListener("click", event => {
   }
 });
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
+elements.closeReviewLibraryButton.addEventListener("click", closeReviewLibrary);
+elements.libraryOpenReviewButton.addEventListener("click", () => {
+  closeReviewLibrary();
+  openPackageImport();
+});
 elements.reviewerInput.addEventListener("change", saveReviewer);
 elements.packageInput.addEventListener("change", event => loadPackageFiles([...event.target.files]));
-elements.folderInput.addEventListener("change", event => loadPackageFiles([...event.target.files]));
-elements.manifestInput.addEventListener("change", event => loadManifestFile(event.target.files[0]));
-elements.proxyInput.addEventListener("change", event => addProxyFiles([...event.target.files]));
 elements.gridToggle.addEventListener("change", renderAngles);
 elements.timelineSlider.addEventListener("input", event => {
   pausePlayback();
@@ -261,6 +277,7 @@ for (const list of [elements.markerList, elements.mobileMarkerList]) {
 window.addEventListener("keydown", handleKeydown);
 
 async function openPackageImport() {
+  closeReviewLibrary();
   const bridge = nativeBridge();
   if (bridge?.importReviewPackage) {
     try {
@@ -324,7 +341,7 @@ async function loadPackageFiles(files) {
     const storageMessage = await rememberBrowserPackage(manifest, proxyFiles, manifestFile.name);
     setStatus(`Loaded ${state.project.name}.${storageMessage}`);
   } catch (error) {
-    setStatus(`Could not import match: ${error.message}`, true);
+    setStatus(`Could not open review: ${error.message}`, true);
   } finally {
     elements.packageInput.value = "";
   }
@@ -382,6 +399,7 @@ async function rememberBrowserPackage(manifest, proxyFiles, sourceName) {
     const result = await storage.savePackage(cloneJsonValue(manifest), proxyFiles, { sourceName });
     state.browserPackageStored = true;
     renderTransport();
+    await refreshReviewLibrary();
     return ` Saved on this device (${formatBytes(result.sizeBytes)}).`;
   } catch (error) {
     state.browserPackageStored = false;
@@ -408,6 +426,7 @@ async function restoreLastBrowserPackage() {
     loadProjectManifest(saved.project);
     state.browserPackageStored = true;
     renderTransport();
+    await refreshReviewLibrary();
     setStatus(`Reopened ${state.project.name} from this device. Saved camera decisions were restored.`);
     return true;
   } catch (error) {
@@ -420,19 +439,132 @@ async function removeDownloadedMatch() {
   if (!state.project || !state.browserPackageStored) {
     return;
   }
-  const projectId = state.project.id;
-  const projectName = state.project.name;
-  if (!window.confirm(`Remove the downloaded proxies for ${projectName} from this device? Saved camera decisions will remain available if you import the match again.`)) {
+  await removeStoredReview(state.project.id);
+}
+
+function reviewLibraryAvailable() {
+  return Boolean(!nativeBridge() && !window.Capacitor && window.PecoBrowserStorage?.listPackages);
+}
+
+async function refreshReviewLibrary() {
+  if (!reviewLibraryAvailable()) {
+    state.reviewLibraryRows = [];
+    renderReviewLibrary();
+    return [];
+  }
+  try {
+    state.reviewLibraryRows = await window.PecoBrowserStorage.listPackages();
+  } catch (error) {
+    state.reviewLibraryRows = [];
+    if (!elements.reviewLibraryMenu.classList.contains("hidden")) {
+      setStatus(`Could not read saved reviews: ${error.message}`, true);
+    }
+  }
+  renderReviewLibrary();
+  return state.reviewLibraryRows;
+}
+
+async function openReviewLibrary() {
+  if (!reviewLibraryAvailable()) {
+    setStatus("Saved review library is available in the browser app. Use Open Review in the Android app.");
     return;
   }
-  pausePlayback();
-  saveProjectState();
+  await refreshReviewLibrary();
+  elements.reviewLibraryMenu.classList.remove("hidden");
+}
+
+function closeReviewLibrary() {
+  elements.reviewLibraryMenu.classList.add("hidden");
+}
+
+function renderReviewLibrary() {
+  elements.reviewLibraryList.innerHTML = "";
+  elements.reviewLibraryEmpty.hidden = state.reviewLibraryRows.length > 0;
+  for (const review of state.reviewLibraryRows) {
+    const row = document.createElement("li");
+    row.className = "review-library-item";
+    row.dataset.projectId = review.projectId;
+
+    const openButton = document.createElement("button");
+    openButton.className = "review-library-open";
+    openButton.type = "button";
+    const title = document.createElement("strong");
+    title.textContent = review.name;
+    const details = document.createElement("span");
+    const mode = review.reviewMode === "notes_only" ? "Notes" : `${review.angleCount} cameras`;
+    details.textContent = `${mode} | ${framesToTimecode(review.durationFrames, review.fps)} | ${formatBytes(review.sizeBytes)}`;
+    const status = document.createElement("span");
+    status.className = `review-library-status ${reviewProgressStatus(review.projectId).cssClass}`;
+    status.textContent = reviewProgressStatus(review.projectId).label;
+    openButton.append(title, details, status);
+    openButton.addEventListener("click", () => openStoredReview(review.projectId));
+
+    const removeButton = document.createElement("button");
+    removeButton.className = "secondary compact review-library-remove";
+    removeButton.type = "button";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => removeStoredReview(review.projectId));
+    row.append(openButton, removeButton);
+    elements.reviewLibraryList.appendChild(row);
+  }
+}
+
+function reviewProgressStatus(projectId) {
   try {
-    await window.PecoBrowserStorage?.removePackage(projectId);
+    if (localStorage.getItem(`${PROJECT_RETURN_STORAGE_PREFIX}${projectId}`)) {
+      return { label: "Sent back", cssClass: "sent" };
+    }
+    if (localStorage.getItem(`${PROJECT_STATE_STORAGE_PREFIX}${projectId}`)) {
+      return { label: "In review", cssClass: "active" };
+    }
+  } catch {
+    // Status is optional when browser preferences are blocked.
+  }
+  return { label: "Not started", cssClass: "new" };
+}
+
+async function openStoredReview(projectId) {
+  try {
+    if (state.project) {
+      saveProjectState();
+    }
+    const saved = await window.PecoBrowserStorage.loadPackage(projectId);
+    if (!saved) {
+      throw new Error("The downloaded review was not found.");
+    }
     resetProject();
-    setStatus(`Removed ${projectName} from device storage. Its saved camera decisions were kept.`);
+    addProxyFiles(saved.proxyFiles, { quiet: true });
+    loadProjectManifest(saved.project);
+    state.browserPackageStored = true;
+    closeReviewLibrary();
+    renderTransport();
+    setStatus(`Opened ${state.project.name} from Reviews.`);
   } catch (error) {
-    setStatus(`Could not remove the downloaded match: ${error.message}`, true);
+    setStatus(`Could not open saved review: ${error.message}`, true);
+    await refreshReviewLibrary();
+  }
+}
+
+async function removeStoredReview(projectId) {
+  const review = state.reviewLibraryRows.find(row => row.projectId === projectId);
+  const projectName = review?.name || (state.project?.id === projectId ? state.project.name : "this review");
+  if (!window.confirm(`Remove ${projectName} and its downloaded proxies from this device? Saved camera choices and notes will remain available if it is opened again.`)) {
+    return;
+  }
+  const removingCurrent = state.project?.id === projectId;
+  if (removingCurrent) {
+    pausePlayback();
+    saveProjectState();
+  }
+  try {
+    await window.PecoBrowserStorage.removePackage(projectId);
+    if (removingCurrent) {
+      resetProject();
+    }
+    await refreshReviewLibrary();
+    setStatus(`Removed ${projectName} from device storage. Saved choices and notes were kept.`);
+  } catch (error) {
+    setStatus(`Could not remove the downloaded review: ${error.message}`, true);
   }
 }
 
@@ -823,6 +955,7 @@ function renderDecisionEditState() {
 
 function renderReviewMode() {
   const notesOnly = state.project?.reviewMode === "notes_only";
+  document.body.classList.toggle("project-empty-mode", !state.project);
   document.body.classList.toggle("notes-only-mode", Boolean(notesOnly));
   elements.exportButton.textContent = "Send Back";
   elements.mobileExportButton.textContent = "Send Back";
@@ -840,6 +973,10 @@ function renderProjectLine() {
 
 function renderTransport() {
   const loaded = isReady();
+  const libraryAvailable = reviewLibraryAvailable();
+  elements.reviewLibraryButton.hidden = !libraryAvailable;
+  elements.mobileReviewLibraryButton.hidden = !libraryAvailable;
+  elements.emptyReviewLibraryButton.hidden = !libraryAvailable;
   for (const button of [
     elements.saveStateButton,
     elements.exportButton,
@@ -2911,6 +3048,7 @@ async function exportCuts() {
         setStatus("Export cancelled.");
         return;
       }
+      markProjectSentBack();
       setStatus(exportStatusMessage(payload, notesOnly));
       return;
     } catch (error) {
@@ -2923,7 +3061,20 @@ async function exportCuts() {
     setStatus("Export cancelled.");
     return;
   }
+  markProjectSentBack();
   setStatus(exportStatusMessage(payload, notesOnly));
+}
+
+function markProjectSentBack() {
+  if (!state.project?.id) {
+    return;
+  }
+  try {
+    localStorage.setItem(`${PROJECT_RETURN_STORAGE_PREFIX}${state.project.id}`, new Date().toISOString());
+  } catch {
+    // Return status is optional when browser preferences are blocked.
+  }
+  renderReviewLibrary();
 }
 
 function exportStatusMessage(payload, notesOnly) {
@@ -2949,6 +3100,7 @@ async function saveCutsToServer() {
     if (!response.ok || !result.ok) {
       throw new Error((result.errors || []).join(" ") || response.statusText);
     }
+    markProjectSentBack();
     setStatus(`Saved ${result.decision_count} decision(s) to ${result.path}.`);
   } catch (error) {
     setStatus(`Save to PC failed: ${error.message}`, true);
@@ -3277,6 +3429,7 @@ function saveProjectState(options = {}) {
   }
   try {
     localStorage.setItem(key, JSON.stringify(buildProjectStatePayload()));
+    renderReviewLibrary();
     if (options.manual) {
       setStatus(`Saved phone edit state for ${state.project.name}.`);
     }
@@ -3412,6 +3565,7 @@ async function bootstrap() {
   if (!loadedFromUrl) {
     await restoreLastBrowserPackage();
   }
+  await refreshReviewLibrary();
 }
 
 bootstrap();

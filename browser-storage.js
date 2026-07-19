@@ -88,8 +88,10 @@
       throw new Error("Cannot save a package without project_id.");
     }
     const proxies = proxyRows(files);
-    if (proxies.length < 2) {
-      throw new Error("Cannot save the package until both proxy files are loaded.");
+    const angleRows = Array.isArray(project?.angles) ? project.angles : [];
+    const expectedProxyCount = Math.max(1, new Set(angleRows.map(row => String(row?.proxy_filename || "").toLowerCase()).filter(Boolean)).size);
+    if (proxies.length < expectedProxyCount) {
+      throw new Error(`Cannot save the review until all ${expectedProxyCount} proxy file${expectedProxyCount === 1 ? " is" : "s are"} loaded.`);
     }
     const persistent = await requestPersistentStorage();
     const record = {
@@ -104,7 +106,6 @@
     try {
       const transaction = database.transaction([PACKAGE_STORE, META_STORE], "readwrite");
       const done = transactionDone(transaction);
-      transaction.objectStore(PACKAGE_STORE).clear();
       transaction.objectStore(PACKAGE_STORE).put(record);
       transaction.objectStore(META_STORE).put({ key: LAST_PACKAGE_KEY, projectId });
       await done;
@@ -142,28 +143,85 @@
       const packageDone = transactionDone(packageTransaction);
       const record = await requestResult(packageTransaction.objectStore(PACKAGE_STORE).get(meta.projectId));
       await packageDone;
-      if (!record) {
-        return null;
+      return restoredPackage(record);
+    } finally {
+      database.close();
+    }
+  }
+
+  function restoredPackage(record) {
+    if (!record) {
+      return null;
+    }
+    return {
+      project: record.project,
+      proxyFiles: (record.proxies || []).map(restoreProxyFile),
+      sourceName: record.sourceName || "",
+      savedAt: record.savedAt || "",
+      sizeBytes: Number(record.sizeBytes || 0)
+    };
+  }
+
+  function packageSummary(record) {
+    const project = record?.project || {};
+    const metadata = project.package_metadata || {};
+    return {
+      projectId: String(record?.projectId || ""),
+      name: String(project.project_name || project.name || "PECO Review"),
+      reviewMode: String(metadata.review_mode || project.review_mode || (project.angles?.length === 1 ? "notes_only" : "multicam_notes")),
+      angleCount: Array.isArray(project.angles) ? project.angles.length : 0,
+      durationFrames: Number(project.duration_frames || 0),
+      fps: Number(project.fps || 30),
+      sourceName: String(record?.sourceName || ""),
+      savedAt: String(record?.savedAt || ""),
+      sizeBytes: Number(record?.sizeBytes || 0)
+    };
+  }
+
+  async function listPackages() {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(PACKAGE_STORE, "readonly");
+      const done = transactionDone(transaction);
+      const records = await requestResult(transaction.objectStore(PACKAGE_STORE).getAll());
+      await done;
+      return (records || [])
+        .map(packageSummary)
+        .filter(row => row.projectId)
+        .sort((left, right) => right.savedAt.localeCompare(left.savedAt) || left.name.localeCompare(right.name));
+    } finally {
+      database.close();
+    }
+  }
+
+  async function loadPackage(projectId) {
+    const id = String(projectId || "").trim();
+    if (!id) {
+      return null;
+    }
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction([PACKAGE_STORE, META_STORE], "readwrite");
+      const done = transactionDone(transaction);
+      const record = await requestResult(transaction.objectStore(PACKAGE_STORE).get(id));
+      if (record) {
+        transaction.objectStore(META_STORE).put({ key: LAST_PACKAGE_KEY, projectId: id });
       }
-      return {
-        project: record.project,
-        proxyFiles: (record.proxies || []).map(restoreProxyFile),
-        sourceName: record.sourceName || "",
-        savedAt: record.savedAt || "",
-        sizeBytes: Number(record.sizeBytes || 0)
-      };
+      await done;
+      return restoredPackage(record);
     } finally {
       database.close();
     }
   }
 
   async function removePackage(projectId) {
+    const id = String(projectId || "").trim();
     const database = await openDatabase();
     try {
       const transaction = database.transaction([PACKAGE_STORE, META_STORE], "readwrite");
       const done = transactionDone(transaction);
-      if (projectId) {
-        transaction.objectStore(PACKAGE_STORE).delete(String(projectId));
+      if (id) {
+        transaction.objectStore(PACKAGE_STORE).delete(id);
       } else {
         transaction.objectStore(PACKAGE_STORE).clear();
       }
@@ -172,11 +230,27 @@
     } finally {
       database.close();
     }
+    if (id) {
+      const remaining = await listPackages();
+      if (remaining[0]?.projectId) {
+        const nextDatabase = await openDatabase();
+        try {
+          const transaction = nextDatabase.transaction(META_STORE, "readwrite");
+          const done = transactionDone(transaction);
+          transaction.objectStore(META_STORE).put({ key: LAST_PACKAGE_KEY, projectId: remaining[0].projectId });
+          await done;
+        } finally {
+          nextDatabase.close();
+        }
+      }
+    }
   }
 
   global.PecoBrowserStorage = Object.freeze({
     savePackage,
     loadLastPackage,
+    listPackages,
+    loadPackage,
     removePackage
   });
 })(window);
