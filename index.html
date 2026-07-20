@@ -259,6 +259,23 @@
           <span>Review goal / instructions</span>
           <textarea id="reviewInstructionsInput" rows="4" maxlength="2000" placeholder="Example: Protect the finish, flag missed floater action, and mark crowd reactions worth replaying."></textarea>
         </label>
+        <section class="playback-performance-panel" aria-labelledby="playbackPerformanceHeading">
+          <div>
+            <strong id="playbackPerformanceHeading">Playback on this device</strong>
+            <span>Auto adapts to older phones, Macs, browsers, and dropped frames.</span>
+          </div>
+          <label class="review-setup-field">
+            <span>Performance mode</span>
+            <select id="playbackPerformanceSelect">
+              <option value="auto">Auto (recommended)</option>
+              <option value="smooth">Smooth / older device</option>
+              <option value="balanced">Balanced</option>
+              <option value="quality">Full live previews</option>
+            </select>
+          </label>
+          <div class="playback-performance-summary" id="playbackPerformanceSummary"></div>
+          <button class="secondary compact" id="copyPlaybackDiagnosticsButton" type="button">Copy Playback Diagnostics</button>
+        </section>
       </div>
       <div class="review-setup-summary" id="reviewSetupSummary"></div>
       <button class="primary" id="saveReviewSetupButton" type="button">Save Review Setup</button>

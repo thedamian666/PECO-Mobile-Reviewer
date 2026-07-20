@@ -1,14 +1,15 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.2.0";
-const APP_VERSION_CODE = 22;
+const APP_VERSION = "0.2.1";
+const APP_VERSION_CODE = 23;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
 const PROJECT_STATE_STORAGE_PREFIX = "peco_mobile_reviewer_project_state:";
 const PROJECT_RETURN_STORAGE_PREFIX = "peco_mobile_reviewer_return_sent:";
 const NOTE_PALETTE_STORAGE_KEY = "peco_mobile_reviewer_note_palette:v1";
+const PERFORMANCE_MODE_STORAGE_KEY = "peco_mobile_reviewer_performance_mode:v1";
 const DOUBLE_TAP_MS = 320;
 const EDGE_TAP_RATIO = 0.35;
 const EDGE_SEEK_SECONDS = 5;
@@ -18,6 +19,36 @@ const PROGRAM_HARD_SYNC_TOLERANCE_SECONDS = 0.45;
 const PREVIEW_SOFT_SYNC_TOLERANCE_SECONDS = 0.1;
 const PREVIEW_HARD_SYNC_TOLERANCE_SECONDS = 0.7;
 const SYNC_RATE_ADJUSTMENT = 0.035;
+const PLAYBACK_QUALITY_SAMPLE_INTERVAL_MS = 2000;
+const PLAYBACK_QUALITY_MIN_FRAMES = 24;
+const PLAYBACK_QUALITY_DROP_RATIO = 0.12;
+const MOBILE_PREVIEW_MEDIA_QUERY = "(max-width: 760px), (max-height: 560px) and (pointer: coarse)";
+const PERFORMANCE_PROFILES = Object.freeze({
+  smooth: Object.freeze({
+    label: "Smooth",
+    description: "Two active decoders. Angle previews update when paused or seeking.",
+    syncIntervalMs: 700,
+    playAllProgramVideos: false,
+    liveAlternatePreviews: false,
+    previewPreload: "metadata"
+  }),
+  balanced: Object.freeze({
+    label: "Balanced",
+    description: "Active program plus alternate-camera previews, without duplicate layout decoders.",
+    syncIntervalMs: 400,
+    playAllProgramVideos: false,
+    liveAlternatePreviews: true,
+    previewPreload: "metadata"
+  }),
+  quality: Object.freeze({
+    label: "Full previews",
+    description: "All program angles and visible previews stay live for powerful computers.",
+    syncIntervalMs: VIDEO_SYNC_INTERVAL_MS,
+    playAllProgramVideos: true,
+    liveAlternatePreviews: true,
+    previewPreload: "auto"
+  })
+});
 const ANGLE_SWIPE_MIN_PX = 72;
 const ANGLE_SWIPE_MAX_VERTICAL_PX = 54;
 const JOG_CENTER_DEADZONE_PX = 5;
@@ -118,6 +149,9 @@ const elements = {
   reviewRequestedByInput: document.getElementById("reviewRequestedByInput"),
   reviewInstructionsInput: document.getElementById("reviewInstructionsInput"),
   reviewSetupSummary: document.getElementById("reviewSetupSummary"),
+  playbackPerformanceSelect: document.getElementById("playbackPerformanceSelect"),
+  playbackPerformanceSummary: document.getElementById("playbackPerformanceSummary"),
+  copyPlaybackDiagnosticsButton: document.getElementById("copyPlaybackDiagnosticsButton"),
   saveReviewSetupButton: document.getElementById("saveReviewSetupButton"),
   closeReviewSetupButton: document.getElementById("closeReviewSetupButton"),
   undoDecisionButton: document.getElementById("undoDecisionButton"),
@@ -225,6 +259,13 @@ const state = {
   audioMasterAngleId: "",
   lastProgramSyncMs: 0,
   reviewPlaybackRate: 1,
+  performancePreference: loadPerformancePreference(),
+  autoPerformanceOverride: "",
+  performanceSample: null,
+  lastPerformanceSampleMs: 0,
+  previewGridKey: "",
+  viewportRenderTimer: 0,
+  pausedForVisibility: false,
   gridVideos: new Map(),
   stateSaveTimer: 0,
   tapGesture: {
@@ -330,6 +371,8 @@ elements.closeNotePaletteButton.addEventListener("click", closeNotePaletteMenu);
 elements.saveReviewSetupButton.addEventListener("click", saveReviewSetup);
 elements.closeReviewSetupButton.addEventListener("click", closeReviewSetup);
 elements.reviewWorkflowSelect.addEventListener("change", renderReviewSetupSummary);
+elements.playbackPerformanceSelect.addEventListener("change", renderPlaybackPerformanceSummary);
+elements.copyPlaybackDiagnosticsButton.addEventListener("click", copyPlaybackDiagnostics);
 elements.closeReviewLibraryButton.addEventListener("click", closeReviewLibrary);
 elements.renderClipButton.addEventListener("click", renderProxyClip);
 elements.cancelClipRenderButton.addEventListener("click", () => cancelProxyClipRender());
@@ -406,6 +449,8 @@ for (const list of [elements.markerList, elements.mobileMarkerList]) {
   list.addEventListener("pointerdown", disableMarkerListAutoFollow, { passive: true });
 }
 window.addEventListener("keydown", handleKeydown);
+window.addEventListener("resize", schedulePreviewGridRefresh, { passive: true });
+document.addEventListener("visibilitychange", handlePlaybackVisibilityChange);
 
 async function openPackageImport() {
   closeReviewLibrary();
@@ -833,6 +878,10 @@ function resetProject(options = {}) {
   state.lastFollowedDecisionFrame = null;
   state.lastProgramSyncMs = 0;
   state.reviewPlaybackRate = 1;
+  state.autoPerformanceOverride = "";
+  state.performanceSample = null;
+  state.lastPerformanceSampleMs = 0;
+  state.pausedForVisibility = false;
   state.clipCaptureInFrame = null;
   state.clips = [];
   state.clipSelectionMode = false;
@@ -857,6 +906,7 @@ function resetProject(options = {}) {
   state.selectedMarkerCategory = "note";
   state.notePaletteIds = [];
   clearTimeout(state.markerListScrollTimer);
+  clearTimeout(state.viewportRenderTimer);
   state.previewActionFrame = null;
   state.reviewSessionId = "";
   state.returnHeadId = "";
@@ -1239,6 +1289,171 @@ function normalizePathKey(value) {
   return String(value || "").replace(/\\/g, "/").toLowerCase();
 }
 
+function loadPerformancePreference() {
+  try {
+    return normalizePerformancePreference(localStorage.getItem(PERFORMANCE_MODE_STORAGE_KEY));
+  } catch {
+    return "auto";
+  }
+}
+
+function normalizePerformancePreference(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  return ["auto", "smooth", "balanced", "quality"].includes(mode) ? mode : "auto";
+}
+
+function devicePlaybackCapabilities() {
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+  const cores = Math.max(0, Number(navigator.hardwareConcurrency) || 0);
+  const memoryGb = Math.max(0, Number(navigator.deviceMemory) || 0);
+  const userAgent = String(navigator.userAgent || "");
+  const platform = String(navigator.userAgentData?.platform || navigator.platform || "Unknown");
+  const mobile = Boolean(
+    navigator.userAgentData?.mobile
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent)
+      || window.matchMedia?.("(pointer: coarse)").matches
+  );
+  const safari = /Safari/i.test(userAgent) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(userAgent);
+  return {
+    cores,
+    memoryGb,
+    mobile,
+    safari,
+    platform,
+    saveData: Boolean(connection?.saveData),
+    effectiveType: String(connection?.effectiveType || "unknown")
+  };
+}
+
+function automaticPerformanceMode() {
+  if (state.autoPerformanceOverride && PERFORMANCE_PROFILES[state.autoPerformanceOverride]) {
+    return state.autoPerformanceOverride;
+  }
+  const capabilities = devicePlaybackCapabilities();
+  const angleCount = Math.max(1, state.project?.angles?.length || 1);
+  return performanceModeForCapabilities(capabilities, angleCount);
+}
+
+function performanceModeForCapabilities(capabilities, angleCount = 1) {
+  if (
+    capabilities.saveData
+      || ["slow-2g", "2g"].includes(capabilities.effectiveType)
+      || (capabilities.cores > 0 && capabilities.cores <= 4)
+      || (capabilities.memoryGb > 0 && capabilities.memoryGb <= 4)
+      || (capabilities.mobile && capabilities.cores > 0 && capabilities.cores <= 6)
+      || angleCount >= 5
+  ) {
+    return "smooth";
+  }
+  if (
+    capabilities.safari
+      || capabilities.mobile
+      || capabilities.cores === 0
+      || capabilities.memoryGb === 0
+      || capabilities.cores < 8
+      || capabilities.memoryGb < 8
+      || angleCount >= 3
+  ) {
+    return "balanced";
+  }
+  return "quality";
+}
+
+function resolvedPerformanceMode(preference = state.performancePreference) {
+  const normalized = normalizePerformancePreference(preference);
+  return normalized === "auto" ? automaticPerformanceMode() : normalized;
+}
+
+function playbackPerformanceProfile() {
+  return PERFORMANCE_PROFILES[resolvedPerformanceMode()] || PERFORMANCE_PROFILES.balanced;
+}
+
+function performanceModeDisplay(preference = state.performancePreference) {
+  const normalized = normalizePerformancePreference(preference);
+  const resolved = resolvedPerformanceMode(normalized);
+  const label = PERFORMANCE_PROFILES[resolved]?.label || resolved;
+  return normalized === "auto" ? `Auto → ${label}` : label;
+}
+
+function preferredPreviewGridKey() {
+  try {
+    return window.matchMedia?.(MOBILE_PREVIEW_MEDIA_QUERY).matches ? "mobile" : "desktop";
+  } catch {
+    return "desktop";
+  }
+}
+
+function programEntriesForPlayback() {
+  const entries = [...state.programVideos.values()];
+  if (state.clipRender || playbackPerformanceProfile().playAllProgramVideos) {
+    return entries;
+  }
+  const active = state.programVideos.get(state.activeAngleId);
+  return active ? [active] : [];
+}
+
+function previewEntriesForPlayback() {
+  if (state.clipRender || !playbackPerformanceProfile().liveAlternatePreviews) {
+    return [];
+  }
+  const previews = [...state.gridVideos.values()];
+  return playbackPerformanceProfile().playAllProgramVideos
+    ? previews
+    : previews.filter(preview => preview.angleId !== state.activeAngleId);
+}
+
+function applyPlaybackResourcePolicy(options = {}) {
+  const programEntries = new Set(programEntriesForPlayback());
+  const previewEntries = new Set(previewEntriesForPlayback());
+  for (const entry of state.programVideos.values()) {
+    if (!programEntries.has(entry)) {
+      entry.video.pause();
+      setMediaPlaybackRate(entry.video, state.reviewPlaybackRate);
+    } else if (options.play && entry.video.paused) {
+      entry.video.play().catch(() => {});
+    }
+  }
+  for (const preview of state.gridVideos.values()) {
+    preview.video.dataset.livePreview = previewEntries.has(preview) ? "true" : "false";
+    preview.video.closest(".angle-tile")?.classList.toggle("static-preview", !previewEntries.has(preview));
+    if (!previewEntries.has(preview)) {
+      preview.video.pause();
+      setMediaPlaybackRate(preview.video, state.reviewPlaybackRate);
+    } else if (options.play && preview.video.paused) {
+      preview.video.play().catch(() => {});
+    }
+  }
+  renderPerformanceStatus();
+}
+
+function schedulePreviewGridRefresh() {
+  clearTimeout(state.viewportRenderTimer);
+  state.viewportRenderTimer = setTimeout(() => {
+    const nextKey = preferredPreviewGridKey();
+    if (nextKey === state.previewGridKey) {
+      return;
+    }
+    state.previewGridKey = nextKey;
+    renderAngles();
+    syncAllVideos();
+    applyPlaybackResourcePolicy({ play: state.isPlaying });
+  }, 180);
+}
+
+function handlePlaybackVisibilityChange() {
+  if (document.hidden && state.isPlaying) {
+    state.pausedForVisibility = true;
+    pausePlayback({ silent: true });
+    setStatus("Paused while PECO was in the background. Tap Play to resume in sync.");
+    return;
+  }
+  if (!document.hidden && state.pausedForVisibility && isReady()) {
+    state.pausedForVisibility = false;
+    syncAllVideos();
+    setStatus("PECO is back in sync. Tap Play when ready.");
+  }
+}
+
 function renderAll() {
   renderReviewMode();
   renderProjectLine();
@@ -1408,6 +1623,7 @@ function renderAngles() {
   if (!state.project) {
     return;
   }
+  state.previewGridKey = preferredPreviewGridKey();
   elements.angleGrid.style.setProperty("--angle-count", String(Math.max(1, state.project.angles.length)));
   for (const angle of state.project.angles) {
     const button = document.createElement("button");
@@ -1425,15 +1641,16 @@ function renderAngles() {
 
     elements.angleGrid.appendChild(createAnglePreviewTile(angle, {
       keyPrefix: "desktop",
-      showVideo: true,
+      showVideo: state.previewGridKey === "desktop",
       compact: false
     }));
     elements.mobileAnglePreviewGrid.appendChild(createAnglePreviewTile(angle, {
       keyPrefix: "mobile",
-      showVideo: true,
+      showVideo: state.previewGridKey === "mobile",
       compact: true
     }));
   }
+  applyPlaybackResourcePolicy({ play: state.isPlaying });
 }
 
 function createAnglePreviewTile(angle, options = {}) {
@@ -1450,15 +1667,12 @@ function createAnglePreviewTile(angle, options = {}) {
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
-    video.preload = "auto";
+    video.preload = playbackPerformanceProfile().previewPreload;
     video.src = proxyUrlFor(angle);
     video.addEventListener("loadedmetadata", () => syncVideoElement(video, angle), { once: true });
     tile.appendChild(video);
     state.gridVideos.set(`${options.keyPrefix || "preview"}:${angle.id}`, { angleId: angle.id, video });
     syncVideoElement(video, angle);
-    if (state.isPlaying) {
-      video.play().catch(() => {});
-    }
   }
   const name = document.createElement("div");
   name.className = "angle-name";
@@ -1524,7 +1738,7 @@ function ensureProgramVideos() {
     const video = first ? elements.mainVideo : document.createElement("video");
     video.className = "program-video";
     video.playsInline = true;
-    video.preload = "auto";
+    video.preload = playbackPerformanceProfile().playAllProgramVideos ? "auto" : "metadata";
     video.controls = false;
     video.muted = true;
     video.defaultMuted = true;
@@ -1543,6 +1757,7 @@ function ensureProgramVideos() {
     state.visibleAngleId = state.activeAngleId;
   }
   updateProgramVideoVisibility();
+  applyPlaybackResourcePolicy({ play: state.isPlaying });
 }
 
 function clearProgramVideos() {
@@ -1826,7 +2041,9 @@ function openReviewSetup() {
   elements.reviewAssignedToInput.value = collaboration.assigned_to || elements.reviewerInput.value.trim();
   elements.reviewRequestedByInput.value = collaboration.requested_by;
   elements.reviewInstructionsInput.value = collaboration.instructions;
+  elements.playbackPerformanceSelect.value = state.performancePreference;
   renderReviewSetupSummary();
+  renderPlaybackPerformanceSummary();
   elements.reviewSetupMenu.classList.remove("hidden");
 }
 
@@ -1839,6 +2056,7 @@ function saveReviewSetup() {
     return;
   }
   const previousWorkflowId = activeWorkflowProfile().id;
+  const previousPerformanceMode = resolvedPerformanceMode();
   state.collaboration = reviewWorkflow().normalizeCollaboration({
     workflow_id: elements.reviewWorkflowSelect.value,
     assigned_to: elements.reviewAssignedToInput.value,
@@ -1849,10 +2067,26 @@ function saveReviewSetup() {
   if (profile.id !== previousWorkflowId) {
     restoreNotePalette(state.project, { forceProfileDefaults: true });
   }
+  state.performancePreference = normalizePerformancePreference(elements.playbackPerformanceSelect.value);
+  state.autoPerformanceOverride = "";
+  try {
+    localStorage.setItem(PERFORMANCE_MODE_STORAGE_KEY, state.performancePreference);
+  } catch {
+    // Device preferences are best effort when browser storage is unavailable.
+  }
+  if (resolvedPerformanceMode() !== previousPerformanceMode) {
+    clearPreviewVideos();
+    clearProgramVideos();
+    ensureProgramVideos();
+    wireMainVideo();
+    renderAngles();
+  } else {
+    applyPlaybackResourcePolicy();
+  }
   closeReviewSetup();
   scheduleProjectStateAutosave();
   renderAll();
-  setStatus(`Saved ${profile.label} review setup${state.collaboration.assigned_to ? ` for ${state.collaboration.assigned_to}` : ""}.`);
+  setStatus(`Saved ${profile.label} review setup${state.collaboration.assigned_to ? ` for ${state.collaboration.assigned_to}` : ""}. Playback: ${performanceModeDisplay()}.`);
 }
 
 function currentCollaborationSummary(collaboration = state.collaboration) {
@@ -1882,6 +2116,71 @@ function renderReviewSetupSummary() {
     parts.push(`${summary.camera_change_count} camera choice${summary.camera_change_count === 1 ? "" : "s"}`);
   }
   elements.reviewSetupSummary.textContent = parts.join(" | ");
+}
+
+function renderPlaybackPerformanceSummary() {
+  const preference = normalizePerformancePreference(elements.playbackPerformanceSelect?.value || state.performancePreference);
+  const resolved = resolvedPerformanceMode(preference);
+  const profile = PERFORMANCE_PROFILES[resolved];
+  const capabilities = devicePlaybackCapabilities();
+  const deviceBits = [
+    capabilities.cores ? `${capabilities.cores} logical cores` : "core count unavailable",
+    capabilities.memoryGb ? `${capabilities.memoryGb} GB device memory hint` : "memory hint unavailable",
+    capabilities.safari ? "Safari/WebKit" : capabilities.mobile ? "mobile browser" : "desktop browser"
+  ];
+  elements.playbackPerformanceSummary.textContent = `${performanceModeDisplay(preference)}. ${profile.description} Detected: ${deviceBits.join(", ")}.`;
+}
+
+function renderPerformanceStatus() {
+  if (!elements.appVersionLabel) {
+    return;
+  }
+  elements.appVersionLabel.textContent = `v${APP_VERSION} (${APP_VERSION_CODE}) • ${performanceModeDisplay()}`;
+}
+
+function playbackDiagnosticsText() {
+  const capabilities = devicePlaybackCapabilities();
+  const activeVideo = activeProgramVideo();
+  const quality = readPlaybackQuality(activeVideo);
+  const lines = [
+    `PECO Mobile ${APP_VERSION} (${APP_VERSION_CODE})`,
+    `Playback setting: ${state.performancePreference}`,
+    `Resolved playback mode: ${resolvedPerformanceMode()}`,
+    `Platform: ${capabilities.platform}`,
+    `Browser: ${String(navigator.userAgent || "Unavailable")}`,
+    `Logical cores: ${capabilities.cores || "Unavailable"}`,
+    `Device memory hint: ${capabilities.memoryGb ? `${capabilities.memoryGb} GB` : "Unavailable"}`,
+    `Network hint: ${capabilities.effectiveType}${capabilities.saveData ? " (data saver)" : ""}`,
+    `Project angles: ${state.project?.angles?.length || 0}`,
+    `Active program decoders: ${state.isPlaying ? programEntriesForPlayback().length : 0}`,
+    `Active preview decoders: ${state.isPlaying ? previewEntriesForPlayback().length : 0}`,
+    `Audio master active: ${Boolean(state.isPlaying && !elements.audioMaster.paused)}`,
+    `Decoded frames: ${quality?.total ?? "Unavailable"}`,
+    `Dropped frames: ${quality?.dropped ?? "Unavailable"}`
+  ];
+  return lines.join("\n");
+}
+
+async function copyPlaybackDiagnostics() {
+  const text = playbackDiagnosticsText();
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    setStatus("Copied playback diagnostics. Send that text with the device and browser complaint.");
+  } catch (error) {
+    setStatus(`Could not copy diagnostics: ${error.message}`, true);
+  }
 }
 
 function renderNotePaletteOptions() {
@@ -2277,8 +2576,8 @@ function wireMainVideo(options = {}) {
       if (state.isPlaying && activeAngle()?.id === angle.id && video.paused) {
         video.play().catch(error => setStatus(`Playback blocked: ${error.message}`, true));
       }
+      applyPlaybackResourcePolicy({ play: state.isPlaying });
     });
-    keepProgramVideosPlaying();
   } else {
     syncPromise.catch(() => {});
   }
@@ -2299,12 +2598,8 @@ function switchAngle(angleId) {
   clearDecisionSelectionState();
   state.activeAngleId = angleId;
   recordDecision(angleId, { frame: state.timelineFrame });
-  keepProgramVideosPlaying();
-  activateProgramVideoWhenReady({
-    waitForFrame: wasPlaying,
-    reportSwitch: true,
-    startedAt: performance.now()
-  });
+  wireMainVideo({ playWhenReady: wasPlaying, reportSwitch: true });
+  applyPlaybackResourcePolicy({ play: false });
   renderTransport();
   renderBoundaryControls();
   renderDecisionList();
@@ -2714,8 +3009,8 @@ function setTimelineFrame(frame, options = {}) {
   const active = activeDecisionAtFrame(state.timelineFrame);
   if (active && active.angleId !== state.activeAngleId) {
     state.activeAngleId = active.angleId;
-    keepProgramVideosPlaying();
-    activateProgramVideoWhenReady({ waitForFrame: state.isPlaying || state.shuttleRaf > 0 });
+    wireMainVideo({ playWhenReady: state.isPlaying || state.shuttleRaf > 0 });
+    applyPlaybackResourcePolicy({ play: false });
   }
   if (active && options.followActiveDecision) {
     state.selectedDecisionFrame = active.frame;
@@ -2742,13 +3037,17 @@ function syncAllVideos() {
   ensureProgramVideos();
   ensureAudioMaster();
   syncAudioMasterToTimeline();
-  for (const entry of state.programVideos.values()) {
+  const programEntries = state.clipRender
+    ? [...state.programVideos.values()]
+    : programEntriesForPlayback();
+  for (const entry of programEntries) {
     const programAngle = angleById(entry.angleId);
     if (programAngle) {
       syncVideoElement(entry.video, programAngle);
     }
   }
-  for (const preview of state.gridVideos.values()) {
+  const previewEntries = state.isPlaying ? previewEntriesForPlayback() : [...state.gridVideos.values()];
+  for (const preview of previewEntries) {
     const gridAngle = angleById(preview.angleId);
     if (gridAngle) {
       syncVideoElement(preview.video, gridAngle);
@@ -2761,12 +3060,12 @@ function maintainProgramVideoSync() {
     return;
   }
   const now = performance.now();
-  if (now - state.lastProgramSyncMs < VIDEO_SYNC_INTERVAL_MS) {
+  if (now - state.lastProgramSyncMs < playbackPerformanceProfile().syncIntervalMs) {
     return;
   }
   state.lastProgramSyncMs = now;
   const clockTime = playbackClockTimelineSeconds();
-  for (const entry of state.programVideos.values()) {
+  for (const entry of programEntriesForPlayback()) {
     const angle = angleById(entry.angleId);
     if (!angle || entry.video.readyState < 1) {
       continue;
@@ -2784,7 +3083,7 @@ function maintainPreviewVideoSync(clockTime = playbackClockTimelineSeconds()) {
   if (!state.project) {
     return;
   }
-  for (const preview of state.gridVideos.values()) {
+  for (const preview of previewEntriesForPlayback()) {
     const angle = angleById(preview.angleId);
     const video = preview.video;
     if (!angle || !video || video.readyState < 1) {
@@ -2822,7 +3121,7 @@ function keepProgramVideosPlaying() {
     return;
   }
   updateProgramVideoVisibility();
-  for (const entry of state.programVideos.values()) {
+  for (const entry of programEntriesForPlayback()) {
     if (entry.video.paused) {
       entry.video.play().catch(() => {});
     }
@@ -2834,6 +3133,7 @@ function keepProgramVideosPlaying() {
   if (state.clipRender?.audio?.paused) {
     state.clipRender.audio.play().catch(() => {});
   }
+  applyPlaybackResourcePolicy({ play: true });
 }
 
 function syncAudioMasterToTimeline() {
@@ -3260,15 +3560,17 @@ function playFromCurrentFrame() {
   }
   syncAllVideos();
   state.isPlaying = true;
+  resetPlaybackPerformanceSample();
   enableDecisionListAutoFollow({ center: true });
   enableMarkerListAutoFollow({ center: true });
   playSyncedProgramVideos().then(() => {
-    for (const preview of state.gridVideos.values()) {
+    for (const preview of previewEntriesForPlayback()) {
       preview.video.play().catch(() => {});
     }
+    applyPlaybackResourcePolicy({ play: true });
     startPlaybackLoop();
     renderTransport();
-    setStatus("Playing.");
+    setStatus(`Playing (${performanceModeDisplay()}).`);
   }).catch(error => {
     state.isPlaying = false;
     state.pendingMainVideoSwap = false;
@@ -3293,7 +3595,7 @@ function playSyncedProgramVideos() {
   state.visibleAngleId = state.activeAngleId;
   updateProgramVideoVisibility();
   state.pendingMainVideoSwap = true;
-  const entries = [...state.programVideos.values()];
+  const entries = programEntriesForPlayback();
   const activeEntry = state.programVideos.get(state.activeAngleId);
   const seekPromises = entries.map(entry => {
     const angle = angleById(entry.angleId);
@@ -3369,6 +3671,7 @@ function startPlaybackLoop() {
       }
       setTimelineFrame(timelineFrame, { syncVideos: false, followActiveDecision: true });
       maintainProgramVideoSync();
+      monitorPlaybackPerformance();
     }
     state.playbackRaf = requestAnimationFrame(tick);
   };
@@ -3532,12 +3835,12 @@ function playFloaterJogAudio() {
   if (audio.paused) {
     audio.play().catch(() => {});
   }
-  for (const entry of state.programVideos.values()) {
+  for (const entry of programEntriesForPlayback()) {
     if (entry.video.paused) {
       entry.video.play().catch(() => {});
     }
   }
-  for (const preview of state.gridVideos.values()) {
+  for (const preview of previewEntriesForPlayback()) {
     if (preview.video.paused) {
       preview.video.play().catch(() => {});
     }
@@ -3575,6 +3878,63 @@ function setMediaPlaybackRate(media, rate) {
   } catch {
     // Some mobile WebViews reject unsupported media playback rates.
   }
+}
+
+function readPlaybackQuality(video) {
+  if (!video) {
+    return null;
+  }
+  try {
+    if (typeof video.getVideoPlaybackQuality === "function") {
+      const quality = video.getVideoPlaybackQuality();
+      return {
+        total: Math.max(0, Number(quality.totalVideoFrames) || 0),
+        dropped: Math.max(0, Number(quality.droppedVideoFrames) || 0)
+      };
+    }
+    const total = Math.max(0, Number(video.webkitDecodedFrameCount) || 0);
+    const dropped = Math.max(0, Number(video.webkitDroppedFrameCount) || 0);
+    return total || dropped ? { total, dropped } : null;
+  } catch {
+    return null;
+  }
+}
+
+function resetPlaybackPerformanceSample() {
+  state.performanceSample = readPlaybackQuality(activeProgramVideo());
+  state.lastPerformanceSampleMs = performance.now();
+}
+
+function monitorPlaybackPerformance() {
+  if (!state.isPlaying || state.performancePreference !== "auto" || state.clipRender) {
+    return;
+  }
+  const now = performance.now();
+  if (now - state.lastPerformanceSampleMs < PLAYBACK_QUALITY_SAMPLE_INTERVAL_MS) {
+    return;
+  }
+  const current = readPlaybackQuality(activeProgramVideo());
+  const previous = state.performanceSample;
+  state.performanceSample = current;
+  state.lastPerformanceSampleMs = now;
+  if (!current || !previous) {
+    return;
+  }
+  const totalDelta = current.total - previous.total;
+  const droppedDelta = current.dropped - previous.dropped;
+  if (totalDelta < PLAYBACK_QUALITY_MIN_FRAMES || droppedDelta / Math.max(1, totalDelta) < PLAYBACK_QUALITY_DROP_RATIO) {
+    return;
+  }
+  const currentMode = resolvedPerformanceMode();
+  const nextMode = currentMode === "quality" ? "balanced" : "smooth";
+  if (nextMode === currentMode) {
+    return;
+  }
+  state.autoPerformanceOverride = nextMode;
+  state.lastProgramSyncMs = 0;
+  applyPlaybackResourcePolicy({ play: true });
+  renderPlaybackPerformanceSummary();
+  setStatus(`PECO detected dropped frames and changed Auto playback to ${PERFORMANCE_PROFILES[nextMode].label}.`);
 }
 
 function handleKeydown(event) {
@@ -5453,7 +5813,7 @@ function setStatus(message, isError = false) {
 }
 
 async function prepareAppUpdateState() {
-  elements.appVersionLabel.textContent = `v${APP_VERSION} (${APP_VERSION_CODE})`;
+  renderPerformanceStatus();
   let previousBuild = "";
   try {
     previousBuild = localStorage.getItem(APP_BUILD_STORAGE_KEY) || "";

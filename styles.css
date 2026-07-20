@@ -937,6 +937,45 @@ body.clip-rendering .control-deck > * {
   grid-column: 1 / -1;
 }
 
+.playback-performance-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #3b4435;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.7fr);
+  gap: 9px 12px;
+  align-items: end;
+  background: #171b15;
+}
+
+.playback-performance-panel > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.playback-performance-panel > div:first-child span,
+.playback-performance-summary {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.playback-performance-summary {
+  grid-column: 1 / -1;
+  min-height: 34px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #11140f;
+}
+
+.playback-performance-panel button {
+  justify-self: start;
+}
+
 .review-setup-summary {
   min-height: 34px;
   padding: 8px 10px;
@@ -1777,6 +1816,15 @@ body.clip-rendering .control-deck > * {
   }
 
   .review-setup-instructions {
+    grid-column: 1;
+  }
+
+  .playback-performance-panel {
+    grid-column: 1;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .playback-performance-summary {
     grid-column: 1;
   }
 
