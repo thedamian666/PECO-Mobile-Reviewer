@@ -1,13 +1,14 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.1.19";
-const APP_VERSION_CODE = 20;
+const APP_VERSION = "0.2.0";
+const APP_VERSION_CODE = 22;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
 const PROJECT_STATE_STORAGE_PREFIX = "peco_mobile_reviewer_project_state:";
 const PROJECT_RETURN_STORAGE_PREFIX = "peco_mobile_reviewer_return_sent:";
+const NOTE_PALETTE_STORAGE_KEY = "peco_mobile_reviewer_note_palette:v1";
 const DOUBLE_TAP_MS = 320;
 const EDGE_TAP_RATIO = 0.35;
 const EDGE_SEEK_SECONDS = 5;
@@ -37,7 +38,21 @@ const MARKER_CATEGORIES = [
 ];
 const WRESTLING_MARKER_CATEGORIES = [
   { id: "bad_floater", label: "Bad Floater", color: "#ef4444" },
-  { id: "hardcam_safer", label: "Hard Cam Safer", color: "#facc15" }
+  { id: "hardcam_safer", label: "Hard Cam Safer", color: "#facc15" },
+  { id: "missed_action", label: "Missed Action", color: "#f97316" },
+  { id: "crowd_reaction", label: "Crowd Reaction", color: "#a3e635" },
+  { id: "replay", label: "Replay / Recap", color: "#c084fc" },
+  { id: "entrance_promo", label: "Entrance / Promo", color: "#60a5fa" },
+  { id: "finish_big_move", label: "Finish / Big Move", color: "#fb7185" }
+];
+const LETS_PLAY_MARKER_CATEGORIES = [
+  { id: "funny_moment", label: "Funny Moment", color: "#4ade80" },
+  { id: "dead_air", label: "Dead Air", color: "#f59e0b" },
+  { id: "censor", label: "Censor / Privacy", color: "#ef4444" },
+  { id: "desync", label: "A/V Desync", color: "#22d3ee" },
+  { id: "chapter", label: "Chapter / Beat", color: "#a78bfa" },
+  { id: "pickup", label: "Pickup / Re-record", color: "#fb7185" },
+  { id: "game_bug", label: "Game Bug / Crash", color: "#f97316" }
 ];
 
 const elements = {
@@ -50,6 +65,8 @@ const elements = {
   exportButton: document.getElementById("exportButton"),
   saveServerButton: document.getElementById("saveServerButton"),
   reviewerInput: document.getElementById("reviewerInput"),
+  reviewSetupButton: document.getElementById("reviewSetupButton"),
+  collaborationLine: document.getElementById("collaborationLine"),
   packageInput: document.getElementById("packageInput"),
   viewerFrame: document.getElementById("viewerFrame"),
   emptyOpenReviewButton: document.getElementById("emptyOpenReviewButton"),
@@ -89,10 +106,25 @@ const elements = {
   markerNoteInput: document.getElementById("markerNoteInput"),
   saveMarkerButton: document.getElementById("saveMarkerButton"),
   closePreviewActionMenuButton: document.getElementById("closePreviewActionMenuButton"),
+  quickNotePalette: document.getElementById("quickNotePalette"),
+  quickNoteButtons: document.getElementById("quickNoteButtons"),
+  customizeNotePaletteButton: document.getElementById("customizeNotePaletteButton"),
+  notePaletteMenu: document.getElementById("notePaletteMenu"),
+  notePaletteOptions: document.getElementById("notePaletteOptions"),
+  closeNotePaletteButton: document.getElementById("closeNotePaletteButton"),
+  reviewSetupMenu: document.getElementById("reviewSetupMenu"),
+  reviewWorkflowSelect: document.getElementById("reviewWorkflowSelect"),
+  reviewAssignedToInput: document.getElementById("reviewAssignedToInput"),
+  reviewRequestedByInput: document.getElementById("reviewRequestedByInput"),
+  reviewInstructionsInput: document.getElementById("reviewInstructionsInput"),
+  reviewSetupSummary: document.getElementById("reviewSetupSummary"),
+  saveReviewSetupButton: document.getElementById("saveReviewSetupButton"),
+  closeReviewSetupButton: document.getElementById("closeReviewSetupButton"),
   undoDecisionButton: document.getElementById("undoDecisionButton"),
   redoDecisionButton: document.getElementById("redoDecisionButton"),
   mobileLoadPackageButton: document.getElementById("mobileLoadPackageButton"),
   mobileReviewLibraryButton: document.getElementById("mobileReviewLibraryButton"),
+  mobileReviewSetupButton: document.getElementById("mobileReviewSetupButton"),
   mobileSaveStateButton: document.getElementById("mobileSaveStateButton"),
   mobileRemovePackageButton: document.getElementById("mobileRemovePackageButton"),
   mobileUndoDecisionButton: document.getElementById("mobileUndoDecisionButton"),
@@ -149,6 +181,8 @@ const elements = {
   reviewLibraryMenu: document.getElementById("reviewLibraryMenu"),
   reviewLibraryList: document.getElementById("reviewLibraryList"),
   reviewLibraryEmpty: document.getElementById("reviewLibraryEmpty"),
+  reviewLibrarySummary: document.getElementById("reviewLibrarySummary"),
+  reviewLibraryFilters: document.getElementById("reviewLibraryFilters"),
   closeReviewLibraryButton: document.getElementById("closeReviewLibraryButton"),
   libraryOpenReviewButton: document.getElementById("libraryOpenReviewButton")
 };
@@ -185,6 +219,7 @@ const state = {
   markerListScrollTimer: 0,
   lastFollowedMarkerId: null,
   selectedMarkerCategory: "note",
+  notePaletteIds: [],
   previewActionFrame: null,
   programVideos: new Map(),
   audioMasterAngleId: "",
@@ -220,6 +255,17 @@ const state = {
   pendingMainVideoSwap: false,
   browserPackageStored: false,
   reviewLibraryRows: [],
+  reviewInboxFilter: "all",
+  reviewSessionId: "",
+  returnHeadId: "",
+  lastExport: null,
+  collaboration: {
+    schema: "peco.mobile_review_collaboration.v1",
+    workflow_id: "general",
+    assigned_to: "",
+    requested_by: "",
+    instructions: ""
+  },
   server: {
     available: false,
     outputDir: "",
@@ -239,6 +285,7 @@ elements.emptyReviewLibraryButton.addEventListener("click", event => {
   openReviewLibrary();
 });
 elements.reviewLibraryButton.addEventListener("click", openReviewLibrary);
+elements.reviewSetupButton.addEventListener("click", openReviewSetup);
 elements.saveStateButton.addEventListener("click", () => saveProjectState({ manual: true }));
 elements.removePackageButton.addEventListener("click", removeDownloadedMatch);
 elements.clipToolsButton.addEventListener("click", () => openRenderMenu());
@@ -246,6 +293,7 @@ elements.exportButton.addEventListener("click", exportCuts);
 elements.saveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileLoadPackageButton.addEventListener("click", openPackageImport);
 elements.mobileReviewLibraryButton.addEventListener("click", openReviewLibrary);
+elements.mobileReviewSetupButton.addEventListener("click", openReviewSetup);
 elements.mobileSaveStateButton.addEventListener("click", () => saveProjectState({ manual: true }));
 elements.mobileRemovePackageButton.addEventListener("click", removeDownloadedMatch);
 elements.mobileUndoDecisionButton.addEventListener("click", undoDecision);
@@ -277,6 +325,11 @@ elements.cancelClipCaptureButton.addEventListener("click", event => {
   cancelClipCapture({ status: "Clip IN canceled." });
 });
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
+elements.customizeNotePaletteButton.addEventListener("click", openNotePaletteMenu);
+elements.closeNotePaletteButton.addEventListener("click", closeNotePaletteMenu);
+elements.saveReviewSetupButton.addEventListener("click", saveReviewSetup);
+elements.closeReviewSetupButton.addEventListener("click", closeReviewSetup);
+elements.reviewWorkflowSelect.addEventListener("change", renderReviewSetupSummary);
 elements.closeReviewLibraryButton.addEventListener("click", closeReviewLibrary);
 elements.renderClipButton.addEventListener("click", renderProxyClip);
 elements.cancelClipRenderButton.addEventListener("click", () => cancelProxyClipRender());
@@ -294,6 +347,14 @@ elements.clearClipSelectionButton.addEventListener("click", () => exitClipSelect
 elements.libraryOpenReviewButton.addEventListener("click", () => {
   closeReviewLibrary();
   openPackageImport();
+});
+elements.reviewLibraryFilters.addEventListener("click", event => {
+  const button = event.target.closest("button[data-review-filter]");
+  if (!button) {
+    return;
+  }
+  state.reviewInboxFilter = button.dataset.reviewFilter || "all";
+  renderReviewLibrary();
 });
 elements.reviewerInput.addEventListener("change", saveReviewer);
 elements.packageInput.addEventListener("change", event => loadPackageFiles([...event.target.files]));
@@ -353,7 +414,7 @@ async function openPackageImport() {
     try {
       setStatus("Opening package picker...");
       const result = await bridge.importReviewPackage();
-      if (!result) {
+      if (!result || result.cancelled) {
         setStatus("Import cancelled.");
         return;
       }
@@ -378,6 +439,8 @@ function loadNativeProjectResult(result) {
   }
   resetProject();
   loadProjectManifest(project, { proxyUrls: result.proxyUrls || result.proxy_urls || {} });
+  state.browserPackageStored = true;
+  refreshReviewLibrary();
 }
 
 async function loadPackageFiles(files) {
@@ -479,7 +542,26 @@ async function rememberBrowserPackage(manifest, proxyFiles, sourceName) {
 }
 
 async function restoreLastBrowserPackage() {
-  if (state.project || nativeBridge() || window.Capacitor || new URLSearchParams(window.location.search).has("project")) {
+  if (state.project || new URLSearchParams(window.location.search).has("project")) {
+    return false;
+  }
+  const bridge = nativeBridge();
+  if (bridge?.loadLastReviewPackage) {
+    try {
+      const saved = await bridge.loadLastReviewPackage();
+      if (!saved?.found || !saved.project) {
+        return false;
+      }
+      loadNativeProjectResult(saved);
+      renderTransport();
+      setStatus(`Reopened ${state.project.name} from this device. Saved camera decisions were restored.`);
+      return true;
+    } catch (error) {
+      setStatus(`Could not reopen the saved match: ${error.message}`, true);
+      return false;
+    }
+  }
+  if (bridge || window.Capacitor) {
     return false;
   }
   const storage = window.PecoBrowserStorage;
@@ -513,7 +595,8 @@ async function removeDownloadedMatch() {
 }
 
 function reviewLibraryAvailable() {
-  return Boolean(!nativeBridge() && !window.Capacitor && window.PecoBrowserStorage?.listPackages);
+  const bridge = nativeBridge();
+  return Boolean(bridge?.listReviewPackages || (!bridge && !window.Capacitor && window.PecoBrowserStorage?.listPackages));
 }
 
 async function refreshReviewLibrary() {
@@ -523,7 +606,10 @@ async function refreshReviewLibrary() {
     return [];
   }
   try {
-    state.reviewLibraryRows = await window.PecoBrowserStorage.listPackages();
+    const bridge = nativeBridge();
+    state.reviewLibraryRows = bridge?.listReviewPackages
+      ? await bridge.listReviewPackages()
+      : await window.PecoBrowserStorage.listPackages();
   } catch (error) {
     state.reviewLibraryRows = [];
     if (!elements.reviewLibraryMenu.classList.contains("hidden")) {
@@ -536,7 +622,7 @@ async function refreshReviewLibrary() {
 
 async function openReviewLibrary() {
   if (!reviewLibraryAvailable()) {
-    setStatus("Saved review library is available in the browser app. Use Open Review in the Android app.");
+    setStatus("Saved review storage is unavailable. Use Open Review to choose a package.");
     return;
   }
   await refreshReviewLibrary();
@@ -549,8 +635,48 @@ function closeReviewLibrary() {
 
 function renderReviewLibrary() {
   elements.reviewLibraryList.innerHTML = "";
-  elements.reviewLibraryEmpty.hidden = state.reviewLibraryRows.length > 0;
-  for (const review of state.reviewLibraryRows) {
+  const statusOrder = { ready: 0, in_review: 1, new: 2, sent: 3 };
+  const rows = state.reviewLibraryRows
+    .map(review => ({
+      ...review,
+      inboxStatus: reviewProgressStatus(review.projectId),
+      collaboration: reviewCollaborationForPackage(review)
+    }))
+    .sort((left, right) => (
+      (statusOrder[left.inboxStatus.id] ?? 9) - (statusOrder[right.inboxStatus.id] ?? 9)
+      || reviewAssignmentPriority(left.collaboration) - reviewAssignmentPriority(right.collaboration)
+      || right.savedAt.localeCompare(left.savedAt)
+      || left.name.localeCompare(right.name)
+    ));
+  const counts = rows.reduce((result, review) => {
+    result[review.inboxStatus.id] = (result[review.inboxStatus.id] || 0) + 1;
+    return result;
+  }, {});
+  const visibleRows = state.reviewInboxFilter === "all"
+    ? rows
+    : rows.filter(review => review.inboxStatus.id === state.reviewInboxFilter);
+  const reviewerName = elements.reviewerInput.value.trim();
+  const assignedToReviewer = reviewerName
+    ? rows.filter(review => review.collaboration.assigned_to.toLowerCase() === reviewerName.toLowerCase()).length
+    : 0;
+  elements.reviewLibrarySummary.textContent = [
+    `${rows.length} review${rows.length === 1 ? "" : "s"}`,
+    `${counts.ready || 0} ready to send`,
+    reviewerName ? `${assignedToReviewer} assigned to ${reviewerName}` : "Add your reviewer name to prioritize assignments"
+  ].join(" | ");
+  for (const button of elements.reviewLibraryFilters.querySelectorAll("button[data-review-filter]")) {
+    const filter = button.dataset.reviewFilter || "all";
+    const count = filter === "all" ? rows.length : counts[filter] || 0;
+    button.classList.toggle("selected", filter === state.reviewInboxFilter);
+    button.setAttribute("aria-pressed", String(filter === state.reviewInboxFilter));
+    const baseLabel = filter === "in_review" ? "In Review" : filter === "ready" ? "Ready" : filter === "sent" ? "Sent" : filter === "new" ? "New" : "All";
+    button.textContent = `${baseLabel} ${count}`;
+  }
+  elements.reviewLibraryEmpty.hidden = visibleRows.length > 0;
+  elements.reviewLibraryEmpty.textContent = rows.length
+    ? "No reviews match this filter"
+    : "No downloaded reviews";
+  for (const review of visibleRows) {
     const row = document.createElement("li");
     row.className = "review-library-item";
     row.dataset.projectId = review.projectId;
@@ -562,10 +688,12 @@ function renderReviewLibrary() {
     title.textContent = review.name;
     const details = document.createElement("span");
     const mode = review.reviewMode === "notes_only" ? "Notes" : `${review.angleCount} cameras`;
-    details.textContent = `${mode} | ${framesToTimecode(review.durationFrames, review.fps)} | ${formatBytes(review.sizeBytes)}`;
+    const profile = reviewWorkflow().workflowProfile(review.collaboration.workflow_id);
+    const assignment = review.collaboration.assigned_to ? ` | Assigned to ${review.collaboration.assigned_to}` : "";
+    details.textContent = `${profile.label} | ${mode}${assignment} | ${framesToTimecode(review.durationFrames, review.fps)} | ${formatBytes(review.sizeBytes)}`;
     const status = document.createElement("span");
-    status.className = `review-library-status ${reviewProgressStatus(review.projectId).cssClass}`;
-    status.textContent = reviewProgressStatus(review.projectId).label;
+    status.className = `review-library-status ${review.inboxStatus.cssClass}`;
+    status.textContent = review.inboxStatus.label;
     openButton.append(title, details, status);
     openButton.addEventListener("click", () => openStoredReview(review.projectId));
 
@@ -581,16 +709,41 @@ function renderReviewLibrary() {
 
 function reviewProgressStatus(projectId) {
   try {
-    if (localStorage.getItem(`${PROJECT_RETURN_STORAGE_PREFIX}${projectId}`)) {
-      return { label: "Sent back", cssClass: "sent" };
-    }
-    if (localStorage.getItem(`${PROJECT_STATE_STORAGE_PREFIX}${projectId}`)) {
-      return { label: "In review", cssClass: "active" };
-    }
+    return reviewWorkflow().inboxStatus(
+      localStorage.getItem(`${PROJECT_STATE_STORAGE_PREFIX}${projectId}`),
+      localStorage.getItem(`${PROJECT_RETURN_STORAGE_PREFIX}${projectId}`)
+    );
   } catch {
     // Status is optional when browser preferences are blocked.
   }
-  return { label: "Not started", cssClass: "new" };
+  return { id: "new", label: "New", cssClass: "new" };
+}
+
+function reviewCollaborationForPackage(review) {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(`${PROJECT_STATE_STORAGE_PREFIX}${review.projectId}`) || "null");
+  } catch {
+    saved = null;
+  }
+  return reviewWorkflow().normalizeCollaboration(saved?.collaboration || review.collaboration, {
+    workflow: review.workflow,
+    workflowId: review.workflowId,
+    projectName: review.name,
+    sourceName: review.reviewMode,
+    assignedTo: review.assignedTo,
+    requestedBy: review.requestedBy,
+    instructions: review.instructions
+  });
+}
+
+function reviewAssignmentPriority(collaboration) {
+  const reviewerName = elements.reviewerInput.value.trim().toLowerCase();
+  const assignedTo = String(collaboration?.assigned_to || "").trim().toLowerCase();
+  if (reviewerName && assignedTo === reviewerName) {
+    return 0;
+  }
+  return assignedTo ? 2 : 1;
 }
 
 async function openStoredReview(projectId) {
@@ -598,13 +751,20 @@ async function openStoredReview(projectId) {
     if (state.project) {
       saveProjectState();
     }
-    const saved = await window.PecoBrowserStorage.loadPackage(projectId);
+    const bridge = nativeBridge();
+    const saved = bridge?.openReviewPackage
+      ? await bridge.openReviewPackage(projectId)
+      : await window.PecoBrowserStorage.loadPackage(projectId);
     if (!saved) {
       throw new Error("The downloaded review was not found.");
     }
-    resetProject();
-    addProxyFiles(saved.proxyFiles, { quiet: true });
-    loadProjectManifest(saved.project);
+    if (bridge?.openReviewPackage) {
+      loadNativeProjectResult(saved);
+    } else {
+      resetProject();
+      addProxyFiles(saved.proxyFiles, { quiet: true });
+      loadProjectManifest(saved.project);
+    }
     state.browserPackageStored = true;
     closeReviewLibrary();
     renderTransport();
@@ -627,7 +787,12 @@ async function removeStoredReview(projectId) {
     saveProjectState();
   }
   try {
-    await window.PecoBrowserStorage.removePackage(projectId);
+    const bridge = nativeBridge();
+    if (bridge?.removeReviewPackage) {
+      await bridge.removeReviewPackage(projectId);
+    } else {
+      await window.PecoBrowserStorage.removePackage(projectId);
+    }
     if (removingCurrent) {
       resetProject();
     }
@@ -690,14 +855,21 @@ function resetProject(options = {}) {
   state.markerListProgrammaticScroll = false;
   state.lastFollowedMarkerId = null;
   state.selectedMarkerCategory = "note";
+  state.notePaletteIds = [];
   clearTimeout(state.markerListScrollTimer);
   state.previewActionFrame = null;
+  state.reviewSessionId = "";
+  state.returnHeadId = "";
+  state.lastExport = null;
+  state.collaboration = reviewWorkflow().normalizeCollaboration(null);
   state.tapGesture.lastTap = null;
   state.suppressViewerTap = false;
   clearClipLongPress();
   clearViewerLongPress();
   clearAnglePreviewSwipe();
   elements.previewActionMenu.classList.add("hidden");
+  elements.notePaletteMenu.classList.add("hidden");
+  elements.reviewSetupMenu.classList.add("hidden");
   elements.markerSelectionMenu.classList.add("hidden");
   elements.clipSelectionMenu.classList.add("hidden");
   elements.renderMenu.classList.add("hidden");
@@ -739,6 +911,7 @@ function loadProjectManifest(raw, options = {}) {
   }
   const errors = validateProject(project);
   state.project = project;
+  initializeReviewWorkflow(project);
   state.timelineFrame = 0;
   state.activeAngleId = project.angles[0]?.id || "";
   state.audioMasterAngleId = project.audioMasterAngleId;
@@ -813,10 +986,23 @@ function normalizeProject(raw) {
   const audioMasterAngleId = angles.some(angle => angle.id === requestedAudioMasterId)
     ? requestedAudioMasterId
     : fallbackAudioMaster?.id || "";
+  const reviewRoundtrip = packageMetadata.review_roundtrip && typeof packageMetadata.review_roundtrip === "object"
+    ? cloneJsonValue(packageMetadata.review_roundtrip)
+    : {};
+  const projectName = String(raw.project_name || raw.name || "Mobile Multicam Project").trim();
+  const sourceCollaboration = (
+    raw.collaboration && typeof raw.collaboration === "object"
+      ? raw.collaboration
+      : packageMetadata.review_collaboration
+  );
+  const collaboration = reviewWorkflow().normalizeCollaboration(sourceCollaboration, {
+    workflow: packageMetadata.workflow || reviewMode,
+    projectName
+  });
   return {
     schema: raw.schema || PROJECT_SCHEMA,
     id: String(raw.project_id || raw.id || cryptoRandomId()),
-    name: String(raw.project_name || raw.name || "Mobile Multicam Project").trim(),
+    name: projectName,
     fps,
     durationFrames,
     durationSeconds: durationFrames / fps,
@@ -827,8 +1013,46 @@ function normalizeProject(raw) {
     initialCameraChanges,
     initialReviewMarkers,
     packageMetadata,
-    reviewMode
+    reviewMode,
+    collaboration,
+    packageRevisionId: String(reviewRoundtrip.package_revision_id || packageMetadata.package_revision_id || ""),
+    packageReturnHeadId: String(reviewRoundtrip.return_head_id || packageMetadata.return_head_id || ""),
+    defaultNotePaletteIds: Array.isArray(packageMetadata.fast_note_palette)
+      ? packageMetadata.fast_note_palette.map(item => typeof item === "object" ? item.id : item)
+      : [],
+    baselineReviewFingerprint: reviewWorkflow().reviewFingerprint({
+      decisions: (reviewMode === "notes_only" ? [] : initialCameraChanges).map(decision => ({
+        frame: decision.frame,
+        angle_id: decision.angleId
+      })),
+      markers: initialReviewMarkers.map(marker => ({
+        marker_id: marker.id,
+        frame: marker.frame,
+        category: marker.category,
+        note: marker.note || ""
+      })),
+      clips: [],
+      collaboration
+    })
   };
+}
+
+function reviewWorkflow() {
+  if (!window.PecoReviewWorkflow) {
+    throw new Error("PECO review workflow support did not load. Refresh the app and try again.");
+  }
+  return window.PecoReviewWorkflow;
+}
+
+function initializeReviewWorkflow(project) {
+  state.reviewSessionId = `session_${cryptoRandomId()}`;
+  state.returnHeadId = project.packageReturnHeadId || "";
+  state.lastExport = null;
+  state.collaboration = reviewWorkflow().normalizeCollaboration(project.collaboration, {
+    workflow: project.packageMetadata?.workflow,
+    projectName: project.name
+  });
+  restoreNotePalette(project);
 }
 
 function normalizeInitialReviewMarkers(raw, durationFrames) {
@@ -1023,6 +1247,7 @@ function renderAll() {
   renderAngles();
   renderDecisionList();
   renderMarkerList();
+  renderQuickNotePalette();
   renderClipList();
   renderTimeline();
   renderClipCapture();
@@ -1036,6 +1261,7 @@ function renderDecisionEditState() {
   renderBoundaryControls();
   renderDecisionList();
   renderMarkerList();
+  renderQuickNotePalette();
   renderClipList();
   renderTimeline();
   renderClipCapture();
@@ -1055,10 +1281,24 @@ function renderProjectLine() {
   const project = state.project;
   if (!project) {
     elements.projectLine.textContent = "No package loaded";
+    elements.collaborationLine.textContent = "";
+    elements.collaborationLine.classList.add("hidden");
     return;
   }
   const reviewKind = project.reviewMode === "notes_only" ? "Notes" : "Camera + Notes";
   elements.projectLine.textContent = `${project.name} | ${reviewKind} | ${framesToTimecode(project.durationFrames, project.fps)}`;
+  const collaboration = reviewWorkflow().normalizeCollaboration(state.collaboration);
+  const profile = activeWorkflowProfile();
+  const parts = [profile.label];
+  if (collaboration.assigned_to) {
+    parts.push(`Assigned to ${collaboration.assigned_to}`);
+  }
+  if (collaboration.requested_by) {
+    parts.push(`Requested by ${collaboration.requested_by}`);
+  }
+  elements.collaborationLine.textContent = parts.join(" | ");
+  elements.collaborationLine.title = collaboration.instructions || profile.description;
+  elements.collaborationLine.classList.remove("hidden");
 }
 
 function renderTransport() {
@@ -1087,6 +1327,8 @@ function renderTransport() {
   }
   elements.mobileTimelineSlider.disabled = !loaded;
   elements.mobileSaveStateButton.disabled = !loaded;
+  elements.reviewSetupButton.disabled = !loaded;
+  elements.mobileReviewSetupButton.disabled = !loaded;
   elements.mobileClipToolsButton.disabled = !loaded || Boolean(state.clipRender);
   elements.clipToolsButton.disabled = !loaded || Boolean(state.clipRender);
   for (const button of [elements.removePackageButton, elements.mobileRemovePackageButton]) {
@@ -1112,6 +1354,7 @@ function renderTransport() {
   elements.mobileSaveServerButton.hidden = !serverSaveAvailable;
   elements.mobileSaveServerButton.disabled = !loaded || !serverSaveAvailable;
   elements.mobileExportButton.disabled = !loaded;
+  elements.customizeNotePaletteButton.disabled = !loaded;
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
   renderClipCapture();
@@ -1480,15 +1723,206 @@ function markerCategoriesForProject() {
   const rows = [...MARKER_CATEGORIES];
   const metadata = state.project?.packageMetadata || {};
   const projectText = `${state.project?.name || ""} ${metadata.workflow || ""} ${metadata.source_multicam_group_name || ""}`;
-  if (/wrestl|multicam/i.test(projectText) || supportsCameraDecisions()) {
+  const workflowId = activeWorkflowProfile().id;
+  if (workflowId === "wrestling" || (workflowId === "general" && (/wrestl|multicam/i.test(projectText) || supportsCameraDecisions()))) {
     rows.push(...WRESTLING_MARKER_CATEGORIES);
+  }
+  if (workflowId === "lets_play") {
+    rows.push(...LETS_PLAY_MARKER_CATEGORIES);
   }
   return rows;
 }
 
+function activeWorkflowProfile() {
+  return reviewWorkflow().workflowProfile(
+    state.collaboration?.workflow_id,
+    `${state.project?.name || ""} ${state.project?.packageMetadata?.workflow || ""}`
+  );
+}
+
 function markerCategoryById(categoryId) {
-  return [...MARKER_CATEGORIES, ...WRESTLING_MARKER_CATEGORIES]
+  return markerCategoriesForProject()
     .find(category => category.id === String(categoryId || "").trim().toLowerCase()) || MARKER_CATEGORIES[0];
+}
+
+function defaultNotePaletteIds(project = state.project) {
+  if (project?.defaultNotePaletteIds?.length && project?.collaboration?.workflow_id === activeWorkflowProfile().id) {
+    return project.defaultNotePaletteIds;
+  }
+  return activeWorkflowProfile().defaultPaletteIds;
+}
+
+function notePaletteStorageKey() {
+  return `${NOTE_PALETTE_STORAGE_KEY}:${activeWorkflowProfile().id}`;
+}
+
+function restoreNotePalette(project = state.project, options = {}) {
+  const availableIds = markerCategoriesForProject().map(category => category.id);
+  let saved = [];
+  try {
+    const scoped = localStorage.getItem(notePaletteStorageKey());
+    const legacy = options.forceProfileDefaults ? "" : localStorage.getItem(NOTE_PALETTE_STORAGE_KEY);
+    saved = JSON.parse(scoped || legacy || "[]");
+  } catch {
+    saved = [];
+  }
+  state.notePaletteIds = reviewWorkflow().normalizedPaletteIds(
+    saved,
+    availableIds,
+    defaultNotePaletteIds(project)
+  );
+}
+
+function saveNotePalette() {
+  try {
+    localStorage.setItem(notePaletteStorageKey(), JSON.stringify(state.notePaletteIds));
+  } catch {
+    // Palette customization is optional when local browser storage is blocked.
+  }
+}
+
+function renderQuickNotePalette() {
+  elements.quickNoteButtons.innerHTML = "";
+  const loaded = isReady();
+  elements.quickNotePalette.classList.toggle("hidden", !loaded);
+  if (!loaded) {
+    return;
+  }
+  for (const categoryId of state.notePaletteIds) {
+    const category = markerCategoryById(categoryId);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quick-note-button";
+    button.dataset.category = category.id;
+    button.textContent = category.label;
+    button.style.setProperty("--marker-color", category.color);
+    button.addEventListener("click", () => addQuickMarker(category.id));
+    elements.quickNoteButtons.appendChild(button);
+  }
+}
+
+function openNotePaletteMenu() {
+  if (!isReady()) {
+    return;
+  }
+  pausePlayback({ silent: true });
+  renderNotePaletteOptions();
+  elements.notePaletteMenu.classList.remove("hidden");
+}
+
+function closeNotePaletteMenu() {
+  elements.notePaletteMenu.classList.add("hidden");
+  renderQuickNotePalette();
+  setStatus("Fast note palette saved.");
+}
+
+function openReviewSetup() {
+  if (!isReady()) {
+    return;
+  }
+  pausePlayback({ silent: true });
+  const collaboration = reviewWorkflow().normalizeCollaboration(state.collaboration);
+  elements.reviewWorkflowSelect.value = collaboration.workflow_id;
+  elements.reviewAssignedToInput.value = collaboration.assigned_to || elements.reviewerInput.value.trim();
+  elements.reviewRequestedByInput.value = collaboration.requested_by;
+  elements.reviewInstructionsInput.value = collaboration.instructions;
+  renderReviewSetupSummary();
+  elements.reviewSetupMenu.classList.remove("hidden");
+}
+
+function closeReviewSetup() {
+  elements.reviewSetupMenu.classList.add("hidden");
+}
+
+function saveReviewSetup() {
+  if (!isReady()) {
+    return;
+  }
+  const previousWorkflowId = activeWorkflowProfile().id;
+  state.collaboration = reviewWorkflow().normalizeCollaboration({
+    workflow_id: elements.reviewWorkflowSelect.value,
+    assigned_to: elements.reviewAssignedToInput.value,
+    requested_by: elements.reviewRequestedByInput.value,
+    instructions: elements.reviewInstructionsInput.value
+  });
+  const profile = activeWorkflowProfile();
+  if (profile.id !== previousWorkflowId) {
+    restoreNotePalette(state.project, { forceProfileDefaults: true });
+  }
+  closeReviewSetup();
+  scheduleProjectStateAutosave();
+  renderAll();
+  setStatus(`Saved ${profile.label} review setup${state.collaboration.assigned_to ? ` for ${state.collaboration.assigned_to}` : ""}.`);
+}
+
+function currentCollaborationSummary(collaboration = state.collaboration) {
+  return reviewWorkflow().reviewSummary({
+    collaboration,
+    reviewerName: elements.reviewerInput.value.trim(),
+    decisions: supportsCameraDecisions() ? compactDecisions() : [],
+    markers: state.markers,
+    clips: state.clips
+  });
+}
+
+function renderReviewSetupSummary() {
+  const collaboration = reviewWorkflow().normalizeCollaboration({
+    workflow_id: elements.reviewWorkflowSelect.value,
+    assigned_to: elements.reviewAssignedToInput.value,
+    requested_by: elements.reviewRequestedByInput.value,
+    instructions: elements.reviewInstructionsInput.value
+  });
+  const summary = currentCollaborationSummary(collaboration);
+  const parts = [
+    `${summary.workflow_label} profile`,
+    `${summary.marker_count} note${summary.marker_count === 1 ? "" : "s"}`,
+    `${summary.clip_count} clip${summary.clip_count === 1 ? "" : "s"}`
+  ];
+  if (supportsCameraDecisions()) {
+    parts.push(`${summary.camera_change_count} camera choice${summary.camera_change_count === 1 ? "" : "s"}`);
+  }
+  elements.reviewSetupSummary.textContent = parts.join(" | ");
+}
+
+function renderNotePaletteOptions() {
+  elements.notePaletteOptions.innerHTML = "";
+  for (const category of markerCategoriesForProject()) {
+    const label = document.createElement("label");
+    label.className = "note-palette-option";
+    label.style.setProperty("--marker-color", category.color);
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = state.notePaletteIds.includes(category.id);
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        state.notePaletteIds = [...new Set([...state.notePaletteIds, category.id])];
+      } else if (state.notePaletteIds.length > 1) {
+        state.notePaletteIds = state.notePaletteIds.filter(item => item !== category.id);
+      } else {
+        input.checked = true;
+        setStatus("Keep at least one fast note button.", true);
+        return;
+      }
+      saveNotePalette();
+      renderQuickNotePalette();
+    });
+    const text = document.createElement("span");
+    text.textContent = category.label;
+    label.append(input, text);
+    elements.notePaletteOptions.appendChild(label);
+  }
+}
+
+function addQuickMarker(categoryId) {
+  if (!isReady()) {
+    return;
+  }
+  const category = markerCategoryById(categoryId);
+  addReviewMarker(state.timelineFrame, category, "", "peco_mobile_fast_note");
+  if (navigator.vibrate) {
+    navigator.vibrate(18);
+  }
+  setStatus(`Added ${category.label} at ${framesToTimecode((state.project.timelineStartFrame || 0) + state.timelineFrame, state.project.fps)}.`);
 }
 
 function renderMarkerCategoryButtons() {
@@ -2702,21 +3136,26 @@ function savePreviewMarker() {
   const frame = clampFrame(state.previewActionFrame);
   const note = elements.markerNoteInput.value.trim();
   const category = markerCategoryById(state.selectedMarkerCategory);
+  addReviewMarker(frame, category, note, "peco_mobile_review");
+  closePreviewActionMenu();
+  setStatus(`Saved ${category.label} note at ${framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps)}.`);
+}
+
+function addReviewMarker(frame, category, note = "", source = "peco_mobile_review") {
   state.markers.push({
     id: `marker_${cryptoRandomId()}`,
-    frame,
+    frame: clampFrame(frame),
     category: category.id,
     label: category.label,
     color: category.color,
-    note,
+    note: String(note || "").trim(),
     createdAt: new Date().toISOString(),
-    source: "peco_mobile_review"
+    source
   });
   state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
   scheduleProjectStateAutosave();
-  closePreviewActionMenu();
   renderMarkerList();
-  setStatus(`Saved ${category.label} note at ${framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps)}.`);
+  renderQuickNotePalette();
 }
 
 function handleViewerTap(event) {
@@ -4681,7 +5120,7 @@ async function exportCuts() {
         setStatus("Export cancelled.");
         return;
       }
-      markProjectSentBack();
+      markProjectSentBack(payload);
       setStatus(exportStatusMessage(payload, notesOnly));
       return;
     } catch (error) {
@@ -4694,28 +5133,47 @@ async function exportCuts() {
     setStatus("Export cancelled.");
     return;
   }
-  markProjectSentBack();
+  markProjectSentBack(payload);
   setStatus(exportStatusMessage(payload, notesOnly));
 }
 
-function markProjectSentBack() {
+function markProjectSentBack(payload) {
   if (!state.project?.id) {
     return;
   }
+  const metadata = payload?.return_metadata && typeof payload.return_metadata === "object"
+    ? cloneJsonValue(payload.return_metadata)
+    : null;
+  if (metadata?.return_id) {
+    state.returnHeadId = String(metadata.return_id);
+    state.lastExport = metadata;
+  }
   try {
-    localStorage.setItem(`${PROJECT_RETURN_STORAGE_PREFIX}${state.project.id}`, new Date().toISOString());
+    localStorage.setItem(`${PROJECT_RETURN_STORAGE_PREFIX}${state.project.id}`, JSON.stringify({
+      schema: metadata?.schema || "peco.mobile_review_return_status.v1",
+      return_id: metadata?.return_id || "",
+      base_return_id: metadata?.base_return_id || "",
+      review_fingerprint: metadata?.review_fingerprint || currentReviewFingerprint(),
+      sent_at: new Date().toISOString()
+    }));
   } catch {
     // Return status is optional when browser preferences are blocked.
   }
+  saveProjectState();
   renderReviewLibrary();
 }
 
 function exportStatusMessage(payload, notesOnly) {
   const noteCount = payload.review_markers.length;
+  const summary = payload.review_summary || {};
+  const collaboration = [summary.workflow_label, summary.assigned_to ? `assigned to ${summary.assigned_to}` : ""]
+    .filter(Boolean)
+    .join(", ");
+  const context = collaboration ? ` ${collaboration}.` : "";
   if (notesOnly) {
-    return `Exported ${noteCount} review note${noteCount === 1 ? "" : "s"}. Send the .peconotes.json file back to PECO.`;
+    return `Exported ${noteCount} review note${noteCount === 1 ? "" : "s"}.${context} Send the .peconotes.json file back to PECO.`;
   }
-  return `Exported ${payload.selected_camera_changes.length} camera decision(s) and ${noteCount} review note${noteCount === 1 ? "" : "s"}. Send the .pecocuts.json file back to PECO.`;
+  return `Exported ${payload.selected_camera_changes.length} camera decision(s) and ${noteCount} review note${noteCount === 1 ? "" : "s"}.${context} Send the .pecocuts.json file back to PECO.`;
 }
 
 async function saveCutsToServer() {
@@ -4733,7 +5191,7 @@ async function saveCutsToServer() {
     if (!response.ok || !result.ok) {
       throw new Error((result.errors || []).join(" ") || response.statusText);
     }
-    markProjectSentBack();
+    markProjectSentBack(payload);
     setStatus(`Saved ${result.decision_count} decision(s) to ${result.path}.`);
   } catch (error) {
     setStatus(`Save to PC failed: ${error.message}`, true);
@@ -4745,7 +5203,7 @@ function buildCutsPayload() {
   const changes = compactDecisions();
   const reviewerName = elements.reviewerInput.value.trim();
   const notesOnly = project.reviewMode === "notes_only";
-  return {
+  const payload = {
     schema: notesOnly ? NOTES_SCHEMA : CUTS_SCHEMA,
     project_id: project.id,
     project_name: project.name,
@@ -4756,6 +5214,7 @@ function buildCutsPayload() {
     reviewer: {
       name: reviewerName
     },
+    collaboration: cloneJsonValue(state.collaboration),
     review_mode: project.reviewMode,
     package_metadata: cloneJsonValue(project.packageMetadata || {}),
     source_clip_mapping: project.angles.map(angle => ({
@@ -4817,6 +5276,63 @@ function buildCutsPayload() {
     exported_at: new Date().toISOString(),
     exported_by: "PECO Mobile Review"
   };
+  payload.review_summary = reviewWorkflow().reviewSummary({
+    collaboration: payload.collaboration,
+    reviewerName,
+    decisions: payload.selected_camera_changes,
+    markers: payload.review_markers,
+    clips: payload.review_clips
+  });
+  payload.return_metadata = reviewWorkflow().buildReturnMetadata({
+    snapshot: reviewExportSnapshot(reviewerName),
+    baseReturnId: state.returnHeadId,
+    lastExport: state.lastExport,
+    packageRevisionId: project.packageRevisionId,
+    reviewSessionId: state.reviewSessionId,
+    reviewerName
+  });
+  return payload;
+}
+
+function reviewContentSnapshot() {
+  return {
+    decisions: (supportsCameraDecisions() ? compactDecisions() : []).map(decision => ({
+      frame: decision.frame,
+      angle_id: decision.angleId
+    })),
+    markers: state.markers.map(marker => ({
+      marker_id: marker.id,
+      frame: marker.frame,
+      category: marker.category,
+      note: marker.note || ""
+    })),
+    clips: state.clips.map(clip => ({
+      clip_id: clip.id,
+      in_frame: clip.inFrame,
+      out_frame: clip.outFrame
+    })),
+    collaboration: cloneJsonValue(state.collaboration)
+  };
+}
+
+function reviewExportSnapshot(reviewerName = elements.reviewerInput.value.trim()) {
+  return {
+    project_id: state.project?.id || "",
+    reviewer_name: String(reviewerName || ""),
+    ...reviewContentSnapshot()
+  };
+}
+
+function currentReviewFingerprint() {
+  return reviewWorkflow().reviewFingerprint(reviewExportSnapshot());
+}
+
+function reviewChangeCount() {
+  if (!state.project) {
+    return 0;
+  }
+  const current = reviewWorkflow().reviewFingerprint(reviewContentSnapshot());
+  return current === state.project.baselineReviewFingerprint ? 0 : 1;
 }
 
 function downloadJson(filename, payload) {
@@ -5017,6 +5533,9 @@ function saveReviewer() {
   } catch {
     // Review metadata still exports even when browser storage is unavailable.
   }
+  scheduleProjectStateAutosave();
+  renderProjectLine();
+  renderReviewLibrary();
 }
 
 function projectStateStorageKey(project = state.project) {
@@ -5034,10 +5553,17 @@ function buildProjectStatePayload() {
     project_name: project.name,
     fps: project.fps,
     duration_frames: project.durationFrames,
+    package_revision_id: project.packageRevisionId,
+    review_session_id: state.reviewSessionId,
+    return_head_id: state.returnHeadId,
+    last_export: state.lastExport ? cloneJsonValue(state.lastExport) : null,
+    review_fingerprint: currentReviewFingerprint(),
+    review_change_count: reviewChangeCount(),
     timeline_frame: state.timelineFrame,
     selected_decision_frame: state.selectedDecisionFrame,
     active_angle_id: state.activeAngleId,
     reviewer_name: elements.reviewerInput.value.trim(),
+    collaboration: cloneJsonValue(state.collaboration),
     export_range: exportRangeIsValid()
       ? {
           in_frame: state.exportInFrame,
@@ -5119,6 +5645,26 @@ function restoreProjectState(project) {
     if (saved.project_id && saved.project_id !== project.id) {
       return false;
     }
+    if (
+      saved.package_revision_id
+      && project.packageRevisionId
+      && saved.package_revision_id !== project.packageRevisionId
+    ) {
+      return false;
+    }
+    state.collaboration = reviewWorkflow().normalizeCollaboration(saved.collaboration || project.collaboration, {
+      workflow: project.packageMetadata?.workflow,
+      projectName: project.name
+    });
+    restoreNotePalette(project);
+    const savedHeadId = String(saved.return_head_id || "");
+    state.reviewSessionId = String(saved.review_session_id || state.reviewSessionId || `session_${cryptoRandomId()}`);
+    state.returnHeadId = String(project.packageReturnHeadId || savedHeadId || "");
+    state.lastExport = (
+      saved.last_export
+      && typeof saved.last_export === "object"
+      && (!project.packageReturnHeadId || project.packageReturnHeadId === savedHeadId)
+    ) ? cloneJsonValue(saved.last_export) : null;
     const byId = new Map(project.angles.map(angle => [angle.id, angle]));
     const restored = [];
     for (const row of Array.isArray(saved.decisions) ? saved.decisions : []) {

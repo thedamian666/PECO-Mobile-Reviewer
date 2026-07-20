@@ -165,6 +165,7 @@
   function packageSummary(record) {
     const project = record?.project || {};
     const metadata = project.package_metadata || {};
+    const collaboration = project.collaboration || metadata.review_collaboration || {};
     return {
       projectId: String(record?.projectId || ""),
       name: String(project.project_name || project.name || "PECO Review"),
@@ -174,7 +175,13 @@
       fps: Number(project.fps || 30),
       sourceName: String(record?.sourceName || ""),
       savedAt: String(record?.savedAt || ""),
-      sizeBytes: Number(record?.sizeBytes || 0)
+      sizeBytes: Number(record?.sizeBytes || 0),
+      workflow: String(metadata.workflow || ""),
+      workflowId: String(collaboration.workflow_id || ""),
+      assignedTo: String(collaboration.assigned_to || ""),
+      requestedBy: String(collaboration.requested_by || ""),
+      instructions: String(collaboration.instructions || ""),
+      collaboration
     };
   }
 

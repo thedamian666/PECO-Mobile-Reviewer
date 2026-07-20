@@ -109,6 +109,18 @@ button.active {
   overflow-wrap: anywhere;
 }
 
+.collaboration-line {
+  margin-top: 3px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.collaboration-line.hidden {
+  display: none;
+}
+
 .top-actions {
   display: flex;
   gap: 8px;
@@ -856,7 +868,9 @@ body.clip-rendering .control-deck > * {
   transform: translateX(-50%);
 }
 
-.review-library-menu {
+.review-library-menu,
+.note-palette-menu,
+.review-setup-menu {
   position: fixed;
   inset: 50% auto auto 50%;
   z-index: 30;
@@ -873,8 +887,64 @@ body.clip-rendering .control-deck > * {
   transform: translate(-50%, -50%);
 }
 
-.review-library-menu.hidden {
+.review-library-menu.hidden,
+.note-palette-menu.hidden,
+.review-setup-menu.hidden {
   display: none;
+}
+
+.review-setup-menu {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.review-setup-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.review-setup-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.review-setup-field input,
+.review-setup-field select,
+.review-setup-field textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #151813;
+  font: inherit;
+  font-weight: 500;
+}
+
+.review-setup-field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.review-setup-instructions {
+  grid-column: 1 / -1;
+}
+
+.review-setup-summary {
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid #343830;
+  border-radius: 7px;
+  color: var(--muted);
+  background: #181b17;
+  font-size: 12px;
 }
 
 .review-library-head {
@@ -886,6 +956,33 @@ body.clip-rendering .control-deck > * {
 
 .review-library-head strong {
   font-size: 18px;
+}
+
+.dialog-subtitle {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-library-filters {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.review-filter {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 5px 10px;
+  color: var(--muted);
+  background: #181b17;
+}
+
+.review-filter.selected {
+  color: var(--text);
+  border-color: var(--accent-strong);
+  background: #20331d;
 }
 
 .review-library-list {
@@ -944,6 +1041,10 @@ body.clip-rendering .control-deck > * {
 
 .review-library-status.sent {
   color: var(--accent-strong);
+}
+
+.review-library-status.ready {
+  color: #fb7185;
 }
 
 .review-library-empty {
@@ -1017,6 +1118,76 @@ body.clip-rendering .control-deck > * {
 .marker-category-button.selected {
   border-color: var(--marker-color, #38bdf8);
   box-shadow: inset 0 0 0 1px var(--marker-color, #38bdf8);
+}
+
+.note-palette-options {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  overflow: auto;
+}
+
+.note-palette-option {
+  min-height: 42px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #343830;
+  border-radius: 7px;
+  background: #181b17;
+}
+
+.note-palette-option::before,
+.quick-note-button::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--marker-color, #38bdf8);
+}
+
+.quick-note-palette {
+  grid-area: quicknotes;
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  gap: 5px;
+}
+
+.quick-note-palette.hidden {
+  display: none;
+}
+
+.quick-note-buttons {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 5px;
+  overflow-x: auto;
+}
+
+.quick-note-button,
+.quick-note-customize {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.quick-note-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-color: var(--marker-color, #38bdf8);
+  background: #181d18;
+}
+
+.quick-note-customize {
+  color: var(--muted);
+  background: #161816;
 }
 
 .menu-action-row {
@@ -1594,10 +1765,19 @@ body.clip-rendering .control-deck > * {
     transform: none;
   }
 
-  .review-library-menu {
+  .review-library-menu,
+  .review-setup-menu {
     width: calc(100vw - 20px);
     max-height: calc(100dvh - 20px);
     padding: 10px;
+  }
+
+  .review-setup-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .review-setup-instructions {
+    grid-column: 1;
   }
 
   .review-library-item {
@@ -1990,6 +2170,7 @@ body.clip-rendering .control-deck > * {
   justify-content: space-between;
   grid-template-areas:
     "transport options jog"
+    "quicknotes quicknotes quicknotes"
     "status status status"
     "clips clips clips"
     "notes notes notes"
@@ -2217,6 +2398,7 @@ body.clip-rendering .control-deck > * {
     grid-template-areas:
       "angles"
       "options"
+      "quicknotes"
       "transport"
       "jog"
       "status"
@@ -2241,7 +2423,7 @@ body.clip-rendering .control-deck > * {
     grid-area: options;
     min-height: 30px;
     display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-columns: repeat(9, minmax(0, 1fr));
     gap: 1px;
   }
 
@@ -2336,6 +2518,7 @@ body.clip-rendering .control-deck > * {
   body.notes-only-mode .control-deck {
     grid-template-areas:
       "options"
+      "quicknotes"
       "transport"
       "jog"
       "status"
@@ -2348,7 +2531,7 @@ body.clip-rendering .control-deck > * {
 @media (max-height: 560px) and (pointer: coarse) and (orientation: landscape) {
   body {
     grid-template-columns: minmax(0, 1fr) clamp(150px, 28vw, 260px);
-    grid-template-rows: minmax(0, 1fr) auto auto auto auto auto auto auto auto;
+    grid-template-rows: minmax(0, 1fr) auto auto auto auto auto auto auto auto auto;
   }
 
   .workspace {
@@ -2362,7 +2545,7 @@ body.clip-rendering .control-deck > * {
 
   .mobile-angle-preview-grid {
     grid-column: 2;
-    grid-row: 1 / 10;
+    grid-row: 1 / 11;
     min-height: 0;
     height: auto;
     max-height: none;
@@ -2371,41 +2554,71 @@ body.clip-rendering .control-deck > * {
   .mobile-options-row {
     grid-column: 1;
     grid-row: 2;
+    min-height: 28px;
+  }
+
+  .mobile-options-row > .mobile-option {
+    min-height: 28px;
   }
 
   .transport-row {
     grid-column: 1;
+    grid-row: 4;
+  }
+
+  .quick-note-palette {
+    grid-column: 1;
     grid-row: 3;
+    min-height: 30px;
+  }
+
+  .quick-note-button,
+  .quick-note-customize {
+    min-height: 30px;
+    padding-block: 3px;
   }
 
   .jog-row {
     grid-column: 1;
-    grid-row: 4;
+    grid-row: 5;
+    min-height: 36px;
   }
 
   .status-line {
     grid-column: 1;
-    grid-row: 5;
+    grid-row: 6;
+    height: 11px;
+    min-height: 11px;
+    padding-block: 0;
+    font-size: 9px;
+    line-height: 1;
+    overflow: hidden;
   }
 
   .clip-list-section {
     grid-column: 1;
-    grid-row: 6;
+    grid-row: 7;
+    min-height: 36px;
   }
 
   .mobile-marker-list:not(:empty) {
     grid-column: 1;
-    grid-row: 7;
+    grid-row: 8;
+    min-height: 34px;
+    max-height: 38px;
   }
 
   .mobile-decision-list {
     grid-column: 1;
-    grid-row: 8;
+    grid-row: 9;
+    min-height: 36px;
+    max-height: 40px;
   }
 
   .mobile-timeline-row {
     grid-column: 1;
-    grid-row: 9;
+    grid-row: 10;
+    min-height: 28px;
   }
 
   body.notes-only-mode {
@@ -2414,6 +2627,7 @@ body.clip-rendering .control-deck > * {
 
   body.notes-only-mode .workspace,
   body.notes-only-mode .mobile-options-row,
+  body.notes-only-mode .quick-note-palette,
   body.notes-only-mode .transport-row,
   body.notes-only-mode .jog-row,
   body.notes-only-mode .status-line,
