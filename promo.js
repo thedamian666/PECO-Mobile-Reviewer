@@ -24,6 +24,10 @@
     empty: byId("programEmpty"),
     safeGuides: byId("safeGuides"),
     safeGuidesInput: byId("safeGuidesInput"),
+    teleprompterToggle: byId("teleprompterToggleButton"),
+    teleprompterOverlay: byId("teleprompterOverlay"),
+    teleprompterText: byId("teleprompterText"),
+    captionPreview: byId("captionPreview"),
     lowerThird: byId("lowerThird"),
     lowerThirdNickname: byId("lowerThirdNickname"),
     lowerThirdName: byId("lowerThirdName"),
@@ -53,6 +57,38 @@
     voiceBypass: byId("voiceBypassInput"),
     voiceDescription: byId("voiceDescription"),
     voiceMeterFill: byId("voiceMeterFill"),
+    runFieldCheck: byId("runFieldCheckButton"),
+    fieldCheckSummary: byId("fieldCheckSummary"),
+    fieldCheckList: byId("fieldCheckList"),
+    fieldCheckDetail: byId("fieldCheckDetail"),
+    editorName: byId("editorNameInput"),
+    revisionReadout: byId("revisionReadout"),
+    builtInTemplate: byId("builtInTemplateSelect"),
+    applyBuiltInTemplate: byId("applyBuiltInTemplateButton"),
+    templateDescription: byId("templateDescription"),
+    templateSummary: byId("templateSummary"),
+    customTemplateName: byId("customTemplateNameInput"),
+    saveCustomTemplate: byId("saveCustomTemplateButton"),
+    customTemplate: byId("customTemplateSelect"),
+    applyCustomTemplate: byId("applyCustomTemplateButton"),
+    deleteCustomTemplate: byId("deleteCustomTemplateButton"),
+    teleprompterScript: byId("teleprompterScriptInput"),
+    teleprompterStart: byId("teleprompterStartButton"),
+    teleprompterRewind: byId("teleprompterRewindButton"),
+    teleprompterSpeed: byId("teleprompterSpeedSelect"),
+    teleprompterSize: byId("teleprompterSizeSelect"),
+    teleprompterMirror: byId("teleprompterMirrorInput"),
+    captionEnabled: byId("captionEnabledInput"),
+    autoCaption: byId("autoCaptionInput"),
+    captionLanguage: byId("captionLanguageSelect"),
+    autoCaptionSupport: byId("autoCaptionSupport"),
+    captionText: byId("captionTextInput"),
+    captionDuration: byId("captionDurationSelect"),
+    addCaption: byId("addCaptionButton"),
+    captionDictionary: byId("captionDictionaryInput"),
+    applyCaptionCorrections: byId("applyCaptionCorrectionsButton"),
+    captionList: byId("captionList"),
+    captionSummary: byId("captionSummary"),
     takeList: byId("takeList"),
     takeCount: byId("takeCount"),
     sequenceStrip: byId("sequenceStrip"),
@@ -93,6 +129,16 @@
     recordingChunks: [],
     recordingStartedAt: 0,
     recordingTimer: 0,
+    recognition: null,
+    recognitionStartedAt: 0,
+    recordingCaptions: [],
+    customTemplates: [],
+    teleprompter: {
+      frame: 0,
+      running: false,
+      offset: 0,
+      lastAt: 0
+    },
     audio: {
       context: null,
       source: null,
@@ -213,6 +259,404 @@
     if (state.saveTimer) clearTimeout(state.saveTimer);
     state.saveTimer = window.setTimeout(() => saveLocal(true), 900);
     if (renderNow) render();
+  }
+
+  function recorderMimeType() {
+    if (typeof MediaRecorder !== "function") return "";
+    const choices = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/mp4", "video/webm"];
+    return choices.find(value => MediaRecorder.isTypeSupported?.(value)) || "browser-default";
+  }
+
+  async function measureMicrophonePeak(stream, durationMs = 700) {
+    const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!Context || !stream?.getAudioTracks?.().length) return -120;
+    const context = new Context({ latencyHint: "interactive" });
+    try {
+      await context.resume().catch(() => {});
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const values = new Uint8Array(analyser.fftSize);
+      let peak = 0;
+      const deadline = performance.now() + durationMs;
+      while (performance.now() < deadline) {
+        analyser.getByteTimeDomainData(values);
+        for (const value of values) peak = Math.max(peak, Math.abs(value - 128) / 128);
+        await new Promise(resolve => window.setTimeout(resolve, 45));
+      }
+      return peak > 0 ? Math.max(-120, 20 * Math.log10(peak)) : -120;
+    } finally {
+      await context.close().catch(() => {});
+    }
+  }
+
+  function renderFieldCheck() {
+    const check = state.project.promo.field_check;
+    elements.fieldCheckSummary.textContent = check.status === "not_run" ? "Not run" : check.status === "ready" ? "Ready" : check.status === "warning" ? "Review warning" : "Needs attention";
+    elements.fieldCheckSummary.style.color = check.status === "ready" ? "#92ff45" : check.status === "blocked" ? "#ff9f9a" : "";
+    elements.fieldCheckList.replaceChildren();
+    for (const row of check.checks || []) {
+      const item = document.createElement("div");
+      item.className = `field-check ${row.status || "unknown"}`;
+      const label = document.createElement("span");
+      label.textContent = row.label;
+      const status = document.createElement("b");
+      status.textContent = row.status === "pass" ? "Ready" : row.status === "fail" ? "Blocked" : row.status === "warn" ? "Fallback" : "Unknown";
+      item.append(label, status);
+      elements.fieldCheckList.append(item);
+    }
+    elements.fieldCheckDetail.textContent = check.status === "not_run" ? "Run this once on each phone or laptop before recording a long take. No device names are saved." : `${check.summary}${check.storage_available_mb ? ` About ${check.storage_available_mb} MB is currently available to this browser.` : ""}`;
+    const collaboration = state.project.collaboration;
+    elements.editorName.value = collaboration.editor_name || "";
+    elements.revisionReadout.textContent = `Wrestling lane · revision ${Number(collaboration.revision_number || 1)}${collaboration.editor_name ? ` · last editor ${collaboration.editor_name}` : ""} · ${collaboration.conflict_status === "local_only" ? "local copy" : `comparison ${collaboration.conflict_status}`} · Drive ${collaboration.cloud_sync_status === "not_configured" ? "not connected" : collaboration.cloud_sync_status}`;
+  }
+
+  async function runFieldCheck() {
+    elements.runFieldCheck.disabled = true;
+    setStatus("Checking camera, microphone, recorder, and available browser storage...");
+    let stream = null;
+    let cameraReady = false;
+    let microphoneReady = false;
+    let storageAvailableMb = 0;
+    let microphonePeakDb = -120;
+    let permissionError = "";
+    try {
+      const estimate = await navigator.storage?.estimate?.();
+      if (Number.isFinite(estimate?.quota) && Number.isFinite(estimate?.usage)) {
+        storageAvailableMb = Math.max(0, (estimate.quota - estimate.usage) / (1024 * 1024));
+      }
+    } catch {
+      // Storage reporting is optional. IndexedDB availability is tested by local saves.
+    }
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera and microphone APIs are unavailable.");
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false }
+      });
+      cameraReady = stream.getVideoTracks().some(track => track.readyState === "live");
+      microphoneReady = stream.getAudioTracks().some(track => track.readyState === "live");
+      if (microphoneReady) {
+        setStatus("Speak normally for a moment so PECO can check the microphone signal...");
+        microphonePeakDb = await measureMicrophonePeak(stream);
+      }
+    } catch (error) {
+      permissionError = String(error?.message || error || "Permission was not granted.");
+    } finally {
+      for (const track of stream?.getTracks?.() || []) track.stop();
+    }
+    state.project.promo.field_check = Core.evaluateFieldReadiness({
+      secure_context: globalThis.isSecureContext || location.hostname === "127.0.0.1" || location.hostname === "localhost",
+      camera_ready: cameraReady,
+      microphone_ready: microphoneReady,
+      microphone_peak_db: microphonePeakDb,
+      recorder_ready: Boolean(recorderMimeType()),
+      storage_available_mb: storageAvailableMb
+    });
+    markDirty(false);
+    renderFieldCheck();
+    elements.runFieldCheck.disabled = false;
+    if (permissionError) setStatus(`Field check needs attention: ${permissionError}`, true);
+    else setStatus(state.project.promo.field_check.status === "ready" ? "This device is ready for browser recording" : "Field check finished with a fallback or storage warning");
+    return clone(state.project.promo.field_check);
+  }
+
+  function renderTemplateDescription() {
+    const template = Core.PROMO_TEMPLATES[elements.builtInTemplate.value];
+    elements.templateDescription.textContent = template?.description || "Choose a format for the promo.";
+    elements.templateSummary.textContent = state.project.promo.template_id ? (Core.PROMO_TEMPLATES[state.project.promo.template_id]?.label || "Custom kit") : "Choose a starting point";
+  }
+
+  function applyBuiltInTemplate() {
+    const templateId = elements.builtInTemplate.value;
+    beginEdit();
+    if (!Core.applyTemplate(state.project, templateId)) return;
+    state.teleprompter.offset = 0;
+    syncFormsFromProject();
+    markDirty();
+    document.getElementById("teleprompterSection").open = true;
+    setStatus(`${Core.PROMO_TEMPLATES[templateId].label} applied without replacing your character or event kit`);
+  }
+
+  async function loadCustomTemplates() {
+    if (!globalThis.PecoPromoStorage?.listTemplates) return;
+    try {
+      state.customTemplates = await PecoPromoStorage.listTemplates();
+    } catch {
+      state.customTemplates = [];
+    }
+    elements.customTemplate.replaceChildren();
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = state.customTemplates.length ? "Choose a saved kit" : "No saved kits";
+    elements.customTemplate.append(empty);
+    for (const row of state.customTemplates) {
+      const option = document.createElement("option");
+      option.value = row.templateId;
+      option.textContent = row.name;
+      elements.customTemplate.append(option);
+    }
+    elements.applyCustomTemplate.disabled = !elements.customTemplate.value;
+    elements.deleteCustomTemplate.disabled = !elements.customTemplate.value;
+  }
+
+  async function saveCustomTemplate() {
+    if (!globalThis.PecoPromoStorage?.saveTemplate) return;
+    try {
+      const saved = await PecoPromoStorage.saveTemplate(elements.customTemplateName.value, state.project);
+      elements.customTemplateName.value = "";
+      await loadCustomTemplates();
+      elements.customTemplate.value = saved.templateId;
+      elements.applyCustomTemplate.disabled = false;
+      elements.deleteCustomTemplate.disabled = false;
+      setStatus(`Saved reusable kit ${saved.name} on this device`);
+    } catch (error) {
+      setStatus(`Could not save kit: ${error.message}`, true);
+    }
+  }
+
+  function applyCustomTemplate() {
+    const row = state.customTemplates.find(item => item.templateId === elements.customTemplate.value);
+    if (!row) return;
+    beginEdit();
+    const promo = row.promo || {};
+    state.project.promo.promo_type = promo.promo_type || state.project.promo.promo_type;
+    state.project.promo.target_seconds = Number(promo.target_seconds || state.project.promo.target_seconds);
+    state.project.promo.aspect_ratio = promo.aspect_ratio || state.project.promo.aspect_ratio;
+    state.project.promo.character_kit = { ...state.project.promo.character_kit, ...(promo.character_kit || {}) };
+    state.project.promo.overlays = { ...state.project.promo.overlays, ...(promo.overlays || {}) };
+    state.project.promo.teleprompter = { ...state.project.promo.teleprompter, ...(promo.teleprompter || {}), preview_only: true };
+    state.project.promo.captions.dictionary_text = String(promo.captions?.dictionary_text || state.project.promo.captions.dictionary_text || "");
+    state.project.promo.captions.language = String(promo.captions?.language || state.project.promo.captions.language || "en-US");
+    state.teleprompter.offset = 0;
+    syncFormsFromProject();
+    markDirty();
+    setStatus(`Applied saved school/event kit ${row.name}`);
+  }
+
+  async function deleteCustomTemplate() {
+    const row = state.customTemplates.find(item => item.templateId === elements.customTemplate.value);
+    if (!row || !window.confirm(`Delete the saved kit “${row.name}”? Promo projects using it are not changed.`)) return;
+    await PecoPromoStorage.deleteTemplate(row.templateId);
+    await loadCustomTemplates();
+    setStatus(`Deleted saved kit ${row.name}`);
+  }
+
+  function renderTeleprompter() {
+    const prompt = state.project.promo.teleprompter;
+    elements.teleprompterScript.value = prompt.script || "";
+    elements.teleprompterSpeed.value = String(prompt.speed || 24);
+    elements.teleprompterSize.value = String(prompt.font_scale || 1);
+    elements.teleprompterMirror.checked = Boolean(prompt.mirror);
+    elements.teleprompterText.textContent = prompt.script || "Add a script in Field Tools.";
+    elements.teleprompterOverlay.classList.toggle("hidden", !prompt.enabled || !prompt.script);
+    elements.teleprompterOverlay.classList.toggle("mirrored", Boolean(prompt.mirror));
+    elements.teleprompterOverlay.style.setProperty("--prompt-scale", String(prompt.font_scale || 1));
+    elements.teleprompterOverlay.style.setProperty("--prompt-offset", `${state.teleprompter.offset}px`);
+    elements.teleprompterToggle.classList.toggle("active", Boolean(prompt.enabled));
+    elements.teleprompterToggle.setAttribute("aria-pressed", String(Boolean(prompt.enabled)));
+    elements.teleprompterStart.textContent = state.teleprompter.running ? "Pause Scroll" : "Start Scroll";
+    const hasVideo = Boolean(elements.video.currentSrc || elements.video.srcObject || state.project.assets.length);
+    if (prompt.enabled && prompt.script) elements.empty.classList.add("hidden");
+    else if (!hasVideo) elements.empty.classList.remove("hidden");
+  }
+
+  function toggleTeleprompter() {
+    const prompt = state.project.promo.teleprompter;
+    if (!prompt.script && !prompt.enabled) {
+      document.getElementById("teleprompterSection").open = true;
+      elements.teleprompterScript.focus();
+      setStatus("Add a script or apply a Quick Template before opening the prompt.", true);
+      return;
+    }
+    prompt.enabled = !prompt.enabled;
+    if (!prompt.enabled) stopTeleprompter();
+    markDirty(false);
+    renderTeleprompter();
+    renderOverlays();
+  }
+
+  function teleprompterTick(at) {
+    if (!state.teleprompter.running) return;
+    if (!state.teleprompter.lastAt) state.teleprompter.lastAt = at;
+    const seconds = Math.max(0, (at - state.teleprompter.lastAt) / 1000);
+    state.teleprompter.lastAt = at;
+    state.teleprompter.offset -= seconds * Number(state.project.promo.teleprompter.speed || 24);
+    elements.teleprompterOverlay.style.setProperty("--prompt-offset", `${state.teleprompter.offset}px`);
+    state.teleprompter.frame = requestAnimationFrame(teleprompterTick);
+  }
+
+  function startTeleprompter(force = false) {
+    const prompt = state.project.promo.teleprompter;
+    if (!prompt.script) return;
+    prompt.enabled = true;
+    if (state.teleprompter.running && !force) {
+      stopTeleprompter();
+      renderTeleprompter();
+      return;
+    }
+    state.teleprompter.running = true;
+    state.teleprompter.lastAt = 0;
+    if (state.teleprompter.frame) cancelAnimationFrame(state.teleprompter.frame);
+    state.teleprompter.frame = requestAnimationFrame(teleprompterTick);
+    renderTeleprompter();
+  }
+
+  function stopTeleprompter() {
+    state.teleprompter.running = false;
+    state.teleprompter.lastAt = 0;
+    if (state.teleprompter.frame) cancelAnimationFrame(state.teleprompter.frame);
+    state.teleprompter.frame = 0;
+  }
+
+  function rewindTeleprompter() {
+    state.teleprompter.offset = 0;
+    renderTeleprompter();
+  }
+
+  function rawTakeCaption() {
+    if (state.previewMode !== "take") return null;
+    const frame = Math.round(Number(elements.video.currentTime || 0) * fps());
+    return (selectedTake()?.metadata?.captions || []).find(row => frame >= Number(row.start_frame || 0) && frame < Number(row.end_frame || 0)) || null;
+  }
+
+  function renderCaptionPreview() {
+    const captions = state.project.promo.captions;
+    const cue = state.previewMode === "take" ? rawTakeCaption() : Core.activeCaption(state.project, state.frame);
+    elements.captionPreview.textContent = cue?.text || "";
+    elements.captionPreview.classList.toggle("hidden", !captions.enabled || !cue?.text);
+    elements.captionPreview.classList.toggle("with-lower-third", !elements.lowerThird.classList.contains("hidden"));
+  }
+
+  function renderCaptions() {
+    const captions = state.project.promo.captions;
+    elements.captionEnabled.checked = Boolean(captions.enabled);
+    elements.autoCaption.checked = Boolean(captions.auto_capture);
+    elements.captionLanguage.value = captions.language || "en-US";
+    elements.captionDictionary.value = captions.dictionary_text || "";
+    elements.captionList.replaceChildren();
+    const cues = captions.cues.slice().sort((left, right) => Number(left.start_frame || 0) - Number(right.start_frame || 0));
+    for (const cue of cues) {
+      const card = document.createElement("div");
+      card.className = `caption-card${cue.needs_review ? " review" : ""}`;
+      const time = document.createElement("time");
+      time.textContent = frameToTimecode(cue.start_frame);
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 220;
+      input.value = cue.text;
+      input.setAttribute("aria-label", `Caption at ${time.textContent}`);
+      input.addEventListener("change", () => {
+        beginEdit();
+        if (!Core.updateCaption(state.project, cue.caption_id, { text: input.value })) input.value = cue.text;
+        markDirty(false);
+        renderCaptions();
+        renderCaptionPreview();
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Delete";
+      remove.addEventListener("click", () => {
+        beginEdit();
+        Core.removeCaption(state.project, cue.caption_id);
+        markDirty(false);
+        renderCaptions();
+        renderCaptionPreview();
+      });
+      card.append(time, input, remove);
+      elements.captionList.append(card);
+    }
+    elements.captionSummary.textContent = `${cues.length} cue${cues.length === 1 ? "" : "s"}`;
+    const Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+    elements.autoCaption.disabled = !Recognition;
+    elements.autoCaptionSupport.textContent = Recognition ? "Automatic capture is best-effort and remains editable. Browser speech services may require a connection." : "This browser does not offer live speech capture. Manual cues and imported caption metadata still work.";
+    renderCaptionPreview();
+  }
+
+  function addCaptionAtPlayhead() {
+    const text = String(elements.captionText.value || "").trim();
+    if (!text) {
+      elements.captionText.focus();
+      setStatus("Write the caption text first.", true);
+      return null;
+    }
+    const start = state.previewMode === "take" ? Math.round(Number(elements.video.currentTime || 0) * fps()) : state.frame;
+    beginEdit();
+    const cue = Core.addCaption(state.project, start, start + Number(elements.captionDuration.value || 60), text, "manual");
+    const active = state.previewMode === "sequence" ? activeSequenceClip(start) : null;
+    if (cue && active) {
+      cue.clip_id = active.clip_id;
+      cue.asset_id = active.asset_id;
+      cue.source_start_frame = Number(active.source_start_frame || 0) + (start - Number(active.timeline_start_frame || 0));
+      cue.source_end_frame = cue.source_start_frame + Number(elements.captionDuration.value || 60);
+      Core.syncClipCaptions(state.project);
+    }
+    elements.captionText.value = "";
+    markDirty(false);
+    renderCaptions();
+    setStatus(`Added editable caption at ${frameToTimecode(start)}`);
+    return cue;
+  }
+
+  function applyCaptionCorrections() {
+    beginEdit();
+    const dictionary = elements.captionDictionary.value;
+    let changed = Core.applyCaptionCorrections(state.project, dictionary);
+    for (const asset of state.project.assets) {
+      for (const cue of asset.metadata?.captions || []) {
+        const corrected = Core.correctCaptionText(cue.text, dictionary);
+        if (corrected !== cue.text) {
+          cue.text = corrected;
+          changed += 1;
+        }
+      }
+    }
+    markDirty(false);
+    renderCaptions();
+    setStatus(changed ? `Corrected ${changed} caption${changed === 1 ? "" : "s"}` : "No caption text matched the correction list");
+    return changed;
+  }
+
+  function startSpeechCaptioning() {
+    const captions = state.project.promo.captions;
+    const Recognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+    state.recordingCaptions = [];
+    if (!captions.auto_capture || !Recognition) return false;
+    try {
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = captions.language || "en-US";
+      state.recognition = recognition;
+      state.recognitionStartedAt = performance.now();
+      recognition.addEventListener("result", event => {
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          if (!result.isFinal) continue;
+          const raw = String(result[0]?.transcript || "").trim();
+          if (!raw) continue;
+          const text = Core.correctCaptionText(raw, captions.dictionary_text);
+          const end = Math.max(1, Math.round((performance.now() - state.recognitionStartedAt) / 1000 * fps()));
+          const start = Math.max(0, end - Math.max(fps(), Math.round(text.split(/\s+/).length * fps() * .32)));
+          state.recordingCaptions.push({ start_frame: start, end_frame: end + Math.round(fps() * .4), text, original_text: raw, source: "browser_speech", needs_review: true });
+        }
+      });
+      recognition.addEventListener("error", event => setStatus(`Automatic captions paused: ${event.error || "speech service unavailable"}. The video recording continues.`, true));
+      recognition.start();
+      return true;
+    } catch (error) {
+      state.recognition = null;
+      setStatus(`Automatic captions are unavailable: ${error.message}. The video recording continues.`, true);
+      return false;
+    }
+  }
+
+  function stopSpeechCaptioning() {
+    if (!state.recognition) return;
+    try { state.recognition.stop(); } catch { /* Recognition may already be inactive. */ }
+    state.recognition = null;
+    state.recognitionStartedAt = 0;
   }
 
   function revokeObjectUrls() {
@@ -497,9 +941,8 @@
         video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false }
       });
-      const choices = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/webm"];
-      const mimeType = choices.find(value => MediaRecorder.isTypeSupported?.(value)) || "";
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const mimeType = recorderMimeType();
+      const recorder = mimeType && mimeType !== "browser-default" ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       state.recordingStream = stream;
       state.recordingChunks = [];
       state.recorder = recorder;
@@ -518,7 +961,9 @@
       });
       recorder.addEventListener("stop", finishRecording, { once: true });
       recorder.start(500);
-      setStatus("Recording raw take. Tap Stop Recording when the performance is finished.");
+      const captionsStarted = startSpeechCaptioning();
+      if (state.project.promo.teleprompter.enabled) startTeleprompter(true);
+      setStatus(`Recording raw take${captionsStarted ? " with editable speech captions" : ""}. Tap Stop Recording when the performance is finished.`);
     } catch (error) {
       cleanupRecordingStream();
       setStatus(`Could not start live recording: ${error.message}. Opening camera capture instead.`, true);
@@ -545,6 +990,7 @@
     const save = recorder?.datasetSave !== "no";
     const type = recorder?.mimeType || "video/webm";
     const blob = new Blob(state.recordingChunks, { type });
+    const capturedCaptions = state.recordingCaptions.slice();
     cleanupRecordingStream();
     if (!save || !blob.size) {
       setStatus("Recording cancelled");
@@ -552,16 +998,24 @@
     }
     const extension = type.includes("mp4") ? "mp4" : "webm";
     const file = new File([blob], `promo-take-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`, { type, lastModified: Date.now() });
-    await addFiles([file], { recorded: true });
+    const [created] = await addFiles([file], { recorded: true });
+    if (created && capturedCaptions.length) {
+      created.metadata.captions = capturedCaptions;
+      markDirty();
+      setStatus(`Recorded take saved with ${capturedCaptions.length} editable caption cue${capturedCaptions.length === 1 ? "" : "s"}`);
+    }
   }
 
   function cleanupRecordingStream() {
     if (state.recordingTimer) clearTimeout(state.recordingTimer);
     state.recordingTimer = 0;
+    stopSpeechCaptioning();
+    stopTeleprompter();
     for (const track of state.recordingStream?.getTracks?.() || []) track.stop();
     state.recordingStream = null;
     state.recordingChunks = [];
     state.recordingStartedAt = 0;
+    state.recordingCaptions = [];
     state.recorder = null;
     elements.video.pause();
     elements.video.srcObject = null;
@@ -732,11 +1186,12 @@
     elements.safeGuides.classList.toggle("hidden", !promo.safe_guides);
     const active = state.previewMode === "sequence" ? activeSequenceClip(state.frame) : null;
     const relative = active ? state.frame - Number(active.timeline_start_frame || 0) : Math.round(Number(elements.video.currentTime || 0) * fps());
-    const lowerThirdVisible = promo.overlays.lower_third_enabled && state.previewMode !== "end_card" && relative < Number(promo.overlays.lower_third_duration_frames || 120);
+    const lowerThirdVisible = promo.overlays.lower_third_enabled && !promo.teleprompter.enabled && state.previewMode !== "end_card" && relative < Number(promo.overlays.lower_third_duration_frames || 120);
     const endStart = Math.max(0, durationFrames() - Number(promo.overlays.end_card_duration_frames || 90));
     const endCardVisible = promo.overlays.end_card_enabled && (state.previewMode === "end_card" || (state.previewMode === "sequence" && state.frame >= endStart && state.project.clips.length));
     elements.lowerThird.classList.toggle("hidden", !lowerThirdVisible || endCardVisible);
     elements.endCard.classList.toggle("hidden", !endCardVisible);
+    renderCaptionPreview();
   }
 
   function renderTakeList() {
@@ -887,6 +1342,10 @@
     renderSequence();
     renderNotes();
     renderVoice();
+    renderFieldCheck();
+    renderTemplateDescription();
+    renderTeleprompter();
+    renderCaptions();
     renderPlayhead();
     updatePlayHint();
   }
@@ -900,6 +1359,15 @@
     elements.lowerThirdEnabled.checked = Boolean(promo.overlays.lower_third_enabled);
     elements.endCardEnabled.checked = Boolean(promo.overlays.end_card_enabled);
     elements.voiceBypass.checked = Boolean(promo.voice.bypass);
+    elements.editorName.value = state.project.collaboration.editor_name || "";
+    elements.teleprompterScript.value = promo.teleprompter.script || "";
+    elements.teleprompterSpeed.value = String(promo.teleprompter.speed || 24);
+    elements.teleprompterSize.value = String(promo.teleprompter.font_scale || 1);
+    elements.teleprompterMirror.checked = Boolean(promo.teleprompter.mirror);
+    elements.captionEnabled.checked = Boolean(promo.captions.enabled);
+    elements.autoCaption.checked = Boolean(promo.captions.auto_capture);
+    elements.captionLanguage.value = promo.captions.language || "en-US";
+    elements.captionDictionary.value = promo.captions.dictionary_text || "";
     document.querySelectorAll("[data-kit]").forEach(input => { input.value = promo.character_kit[input.dataset.kit] || ""; });
     document.querySelectorAll("[data-beat]").forEach(input => { input.value = promo.beats[input.dataset.beat] || ""; });
   }
@@ -912,10 +1380,12 @@
     if (state.saveTimer) clearTimeout(state.saveTimer);
     state.saveTimer = 0;
     try {
+      if (!silent) Core.touchRevision(state.project, elements.editorName.value);
       const savedAt = await PecoPromoStorage.saveProject(state.project, state.mediaByAssetId);
       state.dirty = false;
       elements.saveState.textContent = `Saved locally ${new Date(savedAt).toLocaleString()}`;
       if (!silent) setStatus("Promo project saved on this device");
+      if (!silent) renderFieldCheck();
       return true;
     } catch (error) {
       elements.saveState.textContent = "Local save failed";
@@ -926,8 +1396,13 @@
 
   function replaceProject(project, mediaByAssetId, status) {
     stopPlayback();
+    stopTeleprompter();
+    state.teleprompter.offset = 0;
     revokeObjectUrls();
-    state.project = Core.normalizeProject(project);
+    const incoming = Core.normalizeProject(project);
+    const relation = Core.compareRevisions(state.project, incoming);
+    if (relation !== "different_project") incoming.collaboration.conflict_status = relation;
+    state.project = incoming;
     state.mediaByAssetId = mediaByAssetId instanceof Map ? mediaByAssetId : new Map();
     state.selectedTakeId = state.project.assets[0]?.asset_id || "";
     state.selectedClipId = Core.sortedClips(state.project)[0]?.clip_id || "";
@@ -940,7 +1415,7 @@
     if (state.previewMode === "take") ensureVideoSource(state.selectedTakeId, 0, false);
     else syncSequenceVideo(true, false);
     render();
-    setStatus(status);
+    setStatus(`${status}${["stale", "diverged"].includes(relation) ? ` Revision status: ${relation}; no automatic merge was performed.` : ""}`, ["stale", "diverged"].includes(relation));
   }
 
   async function loadLastLocal() {
@@ -1004,6 +1479,7 @@
     }
     elements.exportPromo.disabled = true;
     try {
+      Core.touchRevision(state.project, elements.editorName.value);
       await saveLocal(true);
       const payload = Core.exportHandoff(state.project);
       const blob = await PecoDraftArchive.writePackage(payload, state.mediaByAssetId, { onProgress: setStatus });
@@ -1033,6 +1509,7 @@
     state.frame = 0;
     state.history = [];
     state.future = [];
+    state.teleprompter.offset = 0;
     elements.video.removeAttribute("src");
     elements.video.load();
     elements.empty.classList.remove("hidden");
@@ -1099,6 +1576,69 @@
       elements.cameraTakeInput.value = "";
     });
     elements.recordTake.addEventListener("click", toggleRecording);
+    elements.runFieldCheck.addEventListener("click", runFieldCheck);
+    elements.editorName.addEventListener("input", () => {
+      state.project.collaboration.editor_name = elements.editorName.value;
+      markDirty(false);
+      renderFieldCheck();
+    });
+    elements.builtInTemplate.addEventListener("change", renderTemplateDescription);
+    elements.applyBuiltInTemplate.addEventListener("click", applyBuiltInTemplate);
+    elements.saveCustomTemplate.addEventListener("click", saveCustomTemplate);
+    elements.customTemplate.addEventListener("change", () => {
+      const selected = Boolean(elements.customTemplate.value);
+      elements.applyCustomTemplate.disabled = !selected;
+      elements.deleteCustomTemplate.disabled = !selected;
+    });
+    elements.applyCustomTemplate.addEventListener("click", applyCustomTemplate);
+    elements.deleteCustomTemplate.addEventListener("click", deleteCustomTemplate);
+    elements.teleprompterToggle.addEventListener("click", toggleTeleprompter);
+    elements.teleprompterStart.addEventListener("click", () => startTeleprompter(false));
+    elements.teleprompterRewind.addEventListener("click", rewindTeleprompter);
+    elements.teleprompterScript.addEventListener("input", () => {
+      state.project.promo.teleprompter.script = elements.teleprompterScript.value;
+      markDirty(false);
+      renderTeleprompter();
+    });
+    elements.teleprompterSpeed.addEventListener("change", () => {
+      state.project.promo.teleprompter.speed = Number(elements.teleprompterSpeed.value || 24);
+      markDirty(false);
+    });
+    elements.teleprompterSize.addEventListener("change", () => {
+      state.project.promo.teleprompter.font_scale = Number(elements.teleprompterSize.value || 1);
+      markDirty(false);
+      renderTeleprompter();
+    });
+    elements.teleprompterMirror.addEventListener("change", () => {
+      state.project.promo.teleprompter.mirror = elements.teleprompterMirror.checked;
+      markDirty(false);
+      renderTeleprompter();
+    });
+    elements.captionEnabled.addEventListener("change", () => {
+      state.project.promo.captions.enabled = elements.captionEnabled.checked;
+      markDirty(false);
+      renderCaptions();
+    });
+    elements.autoCaption.addEventListener("change", () => {
+      state.project.promo.captions.auto_capture = elements.autoCaption.checked;
+      markDirty(false);
+    });
+    elements.captionLanguage.addEventListener("change", () => {
+      state.project.promo.captions.language = elements.captionLanguage.value;
+      markDirty(false);
+    });
+    elements.addCaption.addEventListener("click", addCaptionAtPlayhead);
+    elements.captionText.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addCaptionAtPlayhead();
+      }
+    });
+    elements.captionDictionary.addEventListener("input", () => {
+      state.project.promo.captions.dictionary_text = elements.captionDictionary.value;
+      markDirty(false);
+    });
+    elements.applyCaptionCorrections.addEventListener("click", applyCaptionCorrections);
     elements.viewerPlayHint.addEventListener("click", togglePlayback);
     elements.previewSequence.addEventListener("click", () => previewSequence(state.frame));
     elements.previewEndCard.addEventListener("click", previewEndCard);
@@ -1169,6 +1709,7 @@
     document.addEventListener("keydown", handleKeydown);
     window.addEventListener("beforeunload", () => {
       cleanupRecordingStream();
+      stopTeleprompter();
       revokeObjectUrls();
       if (state.audio.meterFrame) cancelAnimationFrame(state.audio.meterFrame);
     });
@@ -1178,6 +1719,7 @@
     bindEvents();
     syncFormsFromProject();
     render();
+    await loadCustomTemplates();
     await loadLastLocal();
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("service-worker.js").catch(() => {});
   }
@@ -1195,6 +1737,15 @@
     deleteSelected,
     moveSelected,
     addNote,
+    runFieldCheck,
+    applyBuiltInTemplate,
+    saveCustomTemplate,
+    applyCustomTemplate,
+    toggleTeleprompter,
+    startTeleprompter,
+    rewindTeleprompter,
+    addCaptionAtPlayhead,
+    applyCaptionCorrections,
     setAspect,
     exportPayload: () => Core.exportHandoff(state.project),
     render

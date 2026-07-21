@@ -2,9 +2,10 @@
   "use strict";
 
   const DATABASE_NAME = "peco-promo-studio";
-  const DATABASE_VERSION = 1;
+  const DATABASE_VERSION = 2;
   const PROJECT_STORE = "projects";
   const META_STORE = "meta";
+  const TEMPLATE_STORE = "templates";
   const LAST_KEY = "last-promo-project";
 
   function requestResult(request) {
@@ -30,6 +31,7 @@
         const database = request.result;
         if (!database.objectStoreNames.contains(PROJECT_STORE)) database.createObjectStore(PROJECT_STORE, { keyPath: "projectId" });
         if (!database.objectStoreNames.contains(META_STORE)) database.createObjectStore(META_STORE, { keyPath: "key" });
+        if (!database.objectStoreNames.contains(TEMPLATE_STORE)) database.createObjectStore(TEMPLATE_STORE, { keyPath: "templateId" });
       });
       request.addEventListener("success", () => resolve(request.result), { once: true });
       request.addEventListener("error", () => reject(request.error || new Error("Could not open Promo Studio storage.")), { once: true });
@@ -155,5 +157,64 @@
     }
   }
 
-  global.PecoPromoStorage = Object.freeze({ saveProject, loadProject, loadLastProject, listProjects });
+  async function saveTemplate(name, project) {
+    const cleanName = String(name || "").trim();
+    if (!cleanName) throw new Error("Name the school or event template first.");
+    const templateId = `custom_${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const record = {
+      templateId,
+      name: cleanName,
+      updatedAt: now,
+      promo: {
+        promo_type: String(project?.promo?.promo_type || "match_challenge"),
+        target_seconds: Number(project?.promo?.target_seconds || 30),
+        aspect_ratio: String(project?.promo?.aspect_ratio || "9:16"),
+        character_kit: JSON.parse(JSON.stringify(project?.promo?.character_kit || {})),
+        overlays: JSON.parse(JSON.stringify(project?.promo?.overlays || {})),
+        teleprompter: JSON.parse(JSON.stringify(project?.promo?.teleprompter || {})),
+        captions: {
+          dictionary_text: String(project?.promo?.captions?.dictionary_text || ""),
+          language: String(project?.promo?.captions?.language || "en-US")
+        }
+      }
+    };
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(TEMPLATE_STORE, "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(TEMPLATE_STORE).put(record);
+      await done;
+    } finally {
+      database.close();
+    }
+    return record;
+  }
+
+  async function listTemplates() {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(TEMPLATE_STORE, "readonly");
+      const done = transactionDone(transaction);
+      const records = await requestResult(transaction.objectStore(TEMPLATE_STORE).getAll());
+      await done;
+      return (records || []).sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")));
+    } finally {
+      database.close();
+    }
+  }
+
+  async function deleteTemplate(templateId) {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(TEMPLATE_STORE, "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(TEMPLATE_STORE).delete(String(templateId || ""));
+      await done;
+    } finally {
+      database.close();
+    }
+  }
+
+  global.PecoPromoStorage = Object.freeze({ saveProject, loadProject, loadLastProject, listProjects, saveTemplate, listTemplates, deleteTemplate });
 })(window);

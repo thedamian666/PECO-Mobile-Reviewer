@@ -42,6 +42,7 @@
             <button class="aspect-button" type="button" data-aspect="1:1">Square</button>
           </div>
           <label class="safe-toggle"><input id="safeGuidesInput" type="checkbox" checked> Safe guides</label>
+          <button class="tool-toggle" id="teleprompterToggleButton" type="button" aria-pressed="false">Prompt</button>
           <span id="previewModeLabel">Sequence preview</span>
         </div>
         <div class="program-stage">
@@ -63,6 +64,10 @@
               <small id="endCardEvent">EVENT · DATE · VENUE</small>
               <b id="endCardCta">FOLLOW FOR DETAILS</b>
             </div>
+            <div class="caption-preview hidden" id="captionPreview" aria-live="polite"></div>
+            <div class="teleprompter-overlay hidden" id="teleprompterOverlay" aria-label="Preview-only teleprompter">
+              <div id="teleprompterText">Add a script in Field Tools.</div>
+            </div>
             <div class="recording-badge hidden" id="recordingBadge">REC <span id="recordingTime">00:00</span></div>
             <div class="viewer-time" id="viewerTime">00:00:00:00</div>
             <button class="viewer-play-hint" id="viewerPlayHint" type="button" aria-label="Play or pause preview">Tap to play</button>
@@ -79,6 +84,19 @@
       </section>
 
       <aside class="studio-sidebar" aria-label="Promo setup and styling">
+        <details class="studio-section" id="fieldCheckSection">
+          <summary>Field Check <span id="fieldCheckSummary">Not run</span></summary>
+          <div class="section-body field-panel">
+            <button id="runFieldCheckButton" class="primary" type="button">Check Camera, Mic & Storage</button>
+            <div class="field-checks" id="fieldCheckList" aria-live="polite"></div>
+            <small id="fieldCheckDetail">Run this once on each phone or laptop before recording a long take. No device names are saved.</small>
+            <label>Editor name
+              <input id="editorNameInput" type="text" maxlength="80" placeholder="Who is making this revision?">
+            </label>
+            <div class="revision-readout" id="revisionReadout">Wrestling lane · local only</div>
+          </div>
+        </details>
+
         <details class="studio-section" open>
           <summary>Promo Setup <span id="promoTypeSummary">Match Challenge</span></summary>
           <div class="section-body setup-grid">
@@ -104,6 +122,31 @@
             <label class="wide">Why does it matter?<textarea id="beatStakesInput" data-beat="stakes" rows="2" maxlength="420" placeholder="The stakes of the match"></textarea></label>
             <label class="wide">When and where?<input id="beatEventDetailsInput" data-beat="event_details" type="text" maxlength="220" placeholder="Event, date, and venue"></label>
             <label class="wide">Closing line<input id="beatClosingInput" data-beat="closing_line" type="text" maxlength="220" placeholder="Threat, promise, or catchphrase"></label>
+          </div>
+        </details>
+
+        <details class="studio-section">
+          <summary>Quick Templates <span id="templateSummary">Choose a starting point</span></summary>
+          <div class="section-body template-panel">
+            <label>Built-in format
+              <select id="builtInTemplateSelect">
+                <option value="school_drill">Wrestling School Drill</option>
+                <option value="match_challenge">Match Challenge</option>
+                <option value="event_hype">Event Hype</option>
+                <option value="post_match">Post-Match Reaction</option>
+              </select>
+            </label>
+            <button id="applyBuiltInTemplateButton" class="primary" type="button">Apply Format</button>
+            <p id="templateDescription">Sets the framing, target length, overlay behavior, and a starter teleprompter script without replacing your wrestler or event kit.</p>
+            <div class="custom-template-row">
+              <input id="customTemplateNameInput" type="text" maxlength="80" placeholder="School or event kit name">
+              <button id="saveCustomTemplateButton" type="button">Save Current Kit</button>
+            </div>
+            <div class="custom-template-row">
+              <select id="customTemplateSelect" aria-label="Saved school and event templates"><option value="">No saved kits</option></select>
+              <button id="applyCustomTemplateButton" type="button" disabled>Apply</button>
+              <button id="deleteCustomTemplateButton" class="danger" type="button" disabled>Delete</button>
+            </div>
           </div>
         </details>
 
@@ -138,7 +181,46 @@
             <div class="voice-meter" aria-label="Voice level"><span id="voiceMeterFill"></span><i>-18</i><i>-9</i><i>-1</i></div>
             <p id="voiceDescription">Gentle cleanup that keeps room tone, breath, and performance dynamics.</p>
             <button id="voiceIsolationButton" type="button" disabled>Isolate Voice · Later milestone</button>
-            <small>Deep isolation is intentionally disabled here. Milestone 1 preserves the raw take and applies only reversible browser EQ, compression, and peak control.</small>
+            <small>Deep isolation is intentionally disabled here. Promo Studio preserves the raw take and applies only reversible browser EQ, compression, and peak control.</small>
+          </div>
+        </details>
+
+        <details class="studio-section" id="teleprompterSection">
+          <summary>Teleprompter <span>Preview only</span></summary>
+          <div class="section-body teleprompter-panel">
+            <label>Script
+              <textarea id="teleprompterScriptInput" rows="8" maxlength="6000" placeholder="Paste the promo or apply a Quick Template"></textarea>
+            </label>
+            <div class="teleprompter-controls">
+              <button id="teleprompterStartButton" type="button">Start Scroll</button>
+              <button id="teleprompterRewindButton" type="button">Rewind</button>
+              <label>Speed<select id="teleprompterSpeedSelect"><option value="14">Slow</option><option value="24" selected>Normal</option><option value="38">Fast</option></select></label>
+              <label>Size<select id="teleprompterSizeSelect"><option value="0.85">Small</option><option value="1" selected>Medium</option><option value="1.2">Large</option></select></label>
+              <label class="check-field"><input id="teleprompterMirrorInput" type="checkbox"> Mirror</label>
+            </div>
+            <small>The prompt is a performance aid only. It is marked preview-only and is never baked into the video handoff.</small>
+          </div>
+        </details>
+
+        <details class="studio-section" id="captionsSection">
+          <summary>Captions <span id="captionSummary">0 cues</span></summary>
+          <div class="section-body captions-panel">
+            <div class="caption-options">
+              <label class="check-field"><input id="captionEnabledInput" type="checkbox"> Show captions</label>
+              <label class="check-field"><input id="autoCaptionInput" type="checkbox"> Capture speech while recording</label>
+              <label>Language<select id="captionLanguageSelect"><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option></select></label>
+            </div>
+            <small id="autoCaptionSupport">Automatic capture is best-effort and remains editable. Browser speech services may require a connection.</small>
+            <div class="caption-entry">
+              <input id="captionTextInput" type="text" maxlength="220" placeholder="Caption at the current playhead">
+              <select id="captionDurationSelect" aria-label="Caption duration"><option value="45">1.5 sec</option><option value="60" selected>2 sec</option><option value="90">3 sec</option></select>
+              <button id="addCaptionButton" type="button">Add Cue</button>
+            </div>
+            <label>Wrestling-name corrections
+              <textarea id="captionDictionaryInput" rows="3" maxlength="3000" placeholder="macian=Machina&#10;peco=PECO"></textarea>
+            </label>
+            <button id="applyCaptionCorrectionsButton" type="button">Apply Name Corrections</button>
+            <div class="caption-list" id="captionList"></div>
           </div>
         </details>
       </aside>
@@ -194,7 +276,7 @@
     <footer class="promo-footer">
       <span id="saveStateLabel">Not saved yet</span>
       <span>Tap preview to play · raw takes preserved · Desktop import creates a new timeline</span>
-      <span>PECO Promo Studio Milestone 1</span>
+      <span>PECO Promo Studio Milestone 2</span>
     </footer>
 
     <script src="promo-core.js"></script>

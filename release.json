@@ -1,9 +1,9 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "notes": [
-    "Promo Studio adds a separate Take Locker, simple sequence, character overlays, and coach notes for wrestling promos.",
-    "Four reversible Clean Voice presets add browser EQ, compression, and peak control while preserving every raw take."
+    "Promo Studio adds a camera, microphone, recorder, and storage field check plus a preview-only teleprompter and reusable school/event kits.",
+    "Editable caption cues, wrestling-name corrections, live speech-capture fallback messaging, and revision lineage prepare safe collaboration without enabling cloud uploads."
   ],
   "media_included": false
 }

@@ -1,11 +1,11 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.5.0";
-const APP_VERSION_CODE = 31;
+const APP_VERSION = "0.6.0";
+const APP_VERSION_CODE = 32;
 const APP_PATCH_NOTES = Object.freeze([
-  "Promo Studio adds a separate Take Locker, simple sequence, character overlays, and coach notes for wrestling promos.",
-  "Natural, Broadcast, Aggressive, and Arena voice presets preview reversible EQ, compression, and peak control while raw takes stay preserved."
+  "Promo Studio adds a camera, microphone, recorder, and storage field check plus a preview-only teleprompter and reusable school/event kits.",
+  "Editable caption cues, wrestling-name corrections, live speech-capture fallback messaging, and revision lineage prepare safe collaboration without enabling cloud uploads."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";

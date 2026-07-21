@@ -60,6 +60,45 @@
     post_match: "Post-Match Reaction"
   });
 
+  const PROMO_TEMPLATES = Object.freeze({
+    school_drill: Object.freeze({
+      label: "Wrestling School Drill",
+      description: "A short character, target, stakes, and closing-line practice promo.",
+      promo_type: "character_intro",
+      target_seconds: 30,
+      aspect_ratio: "9:16",
+      end_card_enabled: false,
+      script: "My name is {wrestler}.\n{target}, listen closely.\nThis matters because {stakes}.\n{closing}"
+    }),
+    match_challenge: Object.freeze({
+      label: "Match Challenge",
+      description: "A direct opponent callout with the event information and a strong close.",
+      promo_type: "match_challenge",
+      target_seconds: 30,
+      aspect_ratio: "9:16",
+      end_card_enabled: true,
+      script: "{target}, you know who I am.\n{grievance}\nAt {event}, {stakes}.\n{closing}"
+    }),
+    event_hype: Object.freeze({
+      label: "Event Hype",
+      description: "A compact event advertisement built for a vertical social post.",
+      promo_type: "event_ad",
+      target_seconds: 30,
+      aspect_ratio: "9:16",
+      end_card_enabled: true,
+      script: "{promotion} presents {event}.\n{event_details}\nI'm {wrestler}, and {target} is about to find out why this matters.\n{closing}"
+    }),
+    post_match: Object.freeze({
+      label: "Post-Match Reaction",
+      description: "A fast reaction that captures what happened and what comes next.",
+      promo_type: "post_match",
+      target_seconds: 30,
+      aspect_ratio: "9:16",
+      end_card_enabled: false,
+      script: "You just saw what happened.\n{grievance}\nThis is what comes next: {stakes}.\n{closing}"
+    })
+  });
+
   function uniqueId(prefix) {
     if (global.crypto?.randomUUID) return `${prefix}_${global.crypto.randomUUID()}`;
     return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
@@ -76,6 +115,7 @@
 
   function createProject(name = "Untitled Wrestling Promo") {
     const trackId = uniqueId("promo_track");
+    const revisionId = uniqueId("promo_revision");
     return {
       schema: PROJECT_SCHEMA,
       project_id: uniqueId("promo_project"),
@@ -88,7 +128,7 @@
         timeline_id: uniqueId("promo_timeline"),
         source_timeline_id: "",
         name: String(name || "Untitled Wrestling Promo"),
-        revision_id: "",
+        revision_id: revisionId,
         start_timecode: "00:00:00:00",
         metadata: { browser_created: true, project_kind: "wrestling_promo" }
       },
@@ -145,7 +185,49 @@
           event_details: "",
           closing_line: ""
         },
-        comparison: { a_asset_id: "", b_asset_id: "" }
+        comparison: { a_asset_id: "", b_asset_id: "" },
+        field_check: {
+          status: "not_run",
+          checked_at: "",
+          camera_ready: false,
+          microphone_ready: false,
+          microphone_signal_detected: false,
+          microphone_peak_db: -120,
+          recorder_ready: false,
+          storage_available_mb: 0,
+          summary: "Run the field check before recording on a new device.",
+          checks: []
+        },
+        teleprompter: {
+          enabled: false,
+          preview_only: true,
+          script: "",
+          font_scale: 1,
+          speed: 24,
+          mirror: false
+        },
+        captions: {
+          enabled: false,
+          auto_capture: false,
+          language: "en-US",
+          dictionary_text: "",
+          cues: [],
+          render_status: "editable_metadata_only"
+        },
+        template_id: ""
+      },
+      collaboration: {
+        workspace: "wrestling",
+        lane: "wrestling_promos",
+        organization_id: "",
+        editor_name: "",
+        revision_id: revisionId,
+        parent_revision_id: "",
+        base_revision_id: "",
+        revision_number: 1,
+        updated_at: "",
+        conflict_status: "local_only",
+        cloud_sync_status: "not_configured"
       },
       package_metadata: {
         schema: "peco.browser_edit_package.v1",
@@ -159,7 +241,7 @@
         desktop_is_source_of_truth: false,
         project_kind: "wrestling_promo",
         original_media_preserved: true,
-        warnings: ["Deep AI voice isolation is not rendered by Promo Studio Milestone 1."]
+        warnings: ["Deep AI voice isolation is not rendered by Promo Studio."]
       }
     };
   }
@@ -190,8 +272,20 @@
       overlays: { ...defaults.promo.overlays, ...(source.promo?.overlays || {}) },
       voice: { ...defaults.promo.voice, ...(source.promo?.voice || {}) },
       beats: { ...defaults.promo.beats, ...(source.promo?.beats || {}) },
-      comparison: { ...defaults.promo.comparison, ...(source.promo?.comparison || {}) }
+      comparison: { ...defaults.promo.comparison, ...(source.promo?.comparison || {}) },
+      field_check: { ...defaults.promo.field_check, ...(source.promo?.field_check || {}) },
+      teleprompter: { ...defaults.promo.teleprompter, ...(source.promo?.teleprompter || {}) },
+      captions: {
+        ...defaults.promo.captions,
+        ...(source.promo?.captions || {}),
+        cues: Array.isArray(source.promo?.captions?.cues) ? source.promo.captions.cues : []
+      }
     };
+    source.collaboration = { ...defaults.collaboration, ...(source.collaboration || {}) };
+    source.collaboration.workspace = "wrestling";
+    source.collaboration.lane = "wrestling_promos";
+    source.collaboration.cloud_sync_status = String(source.collaboration.cloud_sync_status || "not_configured");
+    source.timeline.revision_id = String(source.collaboration.revision_id || source.timeline.revision_id || defaults.timeline.revision_id);
     source.package_metadata = { ...defaults.package_metadata, ...(source.package_metadata || {}), project_kind: "wrestling_promo" };
     source.duration_frames = durationFrames(source);
     return source;
@@ -289,6 +383,22 @@
       }
     };
     project.clips.push(created);
+    for (const caption of row.metadata?.captions || []) {
+      const cue = addCaption(
+        project,
+        start + Number(caption.start_frame || 0),
+        start + Number(caption.end_frame || fps(project) * 2),
+        caption.text,
+        caption.source || "browser_speech"
+      );
+      if (cue) {
+        cue.asset_id = row.asset_id;
+        cue.clip_id = created.clip_id;
+        cue.source_start_frame = Number(caption.start_frame || 0);
+        cue.source_end_frame = Number(caption.end_frame || cue.source_start_frame + fps(project) * 2);
+        cue.needs_review = caption.needs_review !== false;
+      }
+    }
     project.duration_frames = durationFrames(project);
     return created;
   }
@@ -300,6 +410,30 @@
       cursor += positiveInteger(row.duration_frames);
     }
     project.duration_frames = Math.max(1, cursor);
+    syncClipCaptions(project);
+  }
+
+  function syncClipCaptions(project) {
+    const clipsById = new Map((project.clips || []).map(row => [row.clip_id, row]));
+    project.promo.captions.cues = (project.promo.captions.cues || []).filter(cue => {
+      if (!cue.clip_id) return true;
+      const row = clipsById.get(cue.clip_id);
+      if (!row) return false;
+      const clipSourceStart = Number(row.source_start_frame || 0);
+      const clipSourceEnd = clipSourceStart + positiveInteger(row.duration_frames);
+      const cueSourceStart = Number.isFinite(Number(cue.source_start_frame)) ? Number(cue.source_start_frame) : clipSourceStart + Math.max(0, Number(cue.start_frame || 0) - Number(row.timeline_start_frame || 0));
+      const cueSourceEnd = Number.isFinite(Number(cue.source_end_frame)) ? Number(cue.source_end_frame) : cueSourceStart + Math.max(1, Number(cue.end_frame || 0) - Number(cue.start_frame || 0));
+      cue.source_start_frame = cueSourceStart;
+      cue.source_end_frame = Math.max(cueSourceStart + 1, cueSourceEnd);
+      const visibleStart = Math.max(clipSourceStart, cue.source_start_frame);
+      const visibleEnd = Math.min(clipSourceEnd, cue.source_end_frame);
+      cue.excluded = visibleEnd <= visibleStart;
+      if (!cue.excluded) {
+        cue.start_frame = Number(row.timeline_start_frame || 0) + (visibleStart - clipSourceStart);
+        cue.end_frame = Number(row.timeline_start_frame || 0) + (visibleEnd - clipSourceStart);
+      }
+      return true;
+    });
   }
 
   function moveClip(project, clipId, direction) {
@@ -314,6 +448,7 @@
       cursor += positiveInteger(row.duration_frames);
     }
     project.duration_frames = Math.max(1, cursor);
+    syncClipCaptions(project);
     return true;
   }
 
@@ -355,6 +490,21 @@
     right.source_start_frame = Number(row.source_start_frame || 0) + (at - start);
     right.duration_frames = end - at;
     right.transition_in = { kind: "none", duration_frames: 0 };
+    const rightSourceStart = Number(right.source_start_frame || 0);
+    for (const cue of project.promo.captions.cues.filter(item => item.clip_id === row.clip_id)) {
+      const cueSourceStart = Number(cue.source_start_frame || 0);
+      const cueSourceEnd = Number(cue.source_end_frame || cueSourceStart + 1);
+      if (cueSourceStart >= rightSourceStart) {
+        cue.clip_id = right.clip_id;
+      } else if (cueSourceEnd > rightSourceStart) {
+        const rightCue = clone(cue);
+        rightCue.caption_id = uniqueId("promo_caption");
+        rightCue.clip_id = right.clip_id;
+        rightCue.source_start_frame = rightSourceStart;
+        cue.source_end_frame = rightSourceStart;
+        project.promo.captions.cues.push(rightCue);
+      }
+    }
     row.duration_frames = at - start;
     project.clips.push(right);
     compactSequence(project);
@@ -365,6 +515,7 @@
     const before = project.clips.length;
     project.clips = project.clips.filter(row => row.clip_id !== clipId);
     if (project.clips.length === before) return false;
+    project.promo.captions.cues = project.promo.captions.cues.filter(row => row.clip_id !== clipId);
     compactSequence(project);
     return true;
   }
@@ -402,6 +553,166 @@
     return marker;
   }
 
+  function templateValue(project, key) {
+    const promo = project?.promo || {};
+    const kit = promo.character_kit || {};
+    const beats = promo.beats || {};
+    const values = {
+      wrestler: kit.wrestler_name || beats.identity || "[RING NAME]",
+      target: kit.opponent || beats.target || "[OPPONENT OR AUDIENCE]",
+      stakes: beats.stakes || "[WHY THIS MATTERS]",
+      grievance: beats.grievance || "[WHAT HAPPENED]",
+      closing: beats.closing_line || "[CLOSING LINE]",
+      event: kit.event_name || "[EVENT]",
+      event_details: beats.event_details || [kit.event_date, kit.venue].filter(Boolean).join(" at ") || "[DATE AND VENUE]",
+      promotion: kit.promotion || "[PROMOTION]"
+    };
+    return String(values[key] || "");
+  }
+
+  function applyTemplate(project, templateId) {
+    const template = PROMO_TEMPLATES[templateId];
+    if (!template) return false;
+    project.promo.template_id = templateId;
+    project.promo.promo_type = template.promo_type;
+    project.promo.target_seconds = template.target_seconds;
+    project.promo.aspect_ratio = template.aspect_ratio;
+    project.promo.overlays.lower_third_enabled = true;
+    project.promo.overlays.end_card_enabled = Boolean(template.end_card_enabled);
+    project.promo.teleprompter.enabled = true;
+    project.promo.teleprompter.preview_only = true;
+    project.promo.teleprompter.script = template.script.replace(/\{([a-z_]+)\}/g, (_match, key) => templateValue(project, key));
+    return true;
+  }
+
+  function addCaption(project, startFrame, endFrame, text, source = "manual") {
+    const cleanText = String(text || "").trim();
+    if (!cleanText) return null;
+    const start = Math.max(0, Math.round(Number(startFrame || 0)));
+    const end = Math.max(start + 1, Math.round(Number(endFrame || (start + fps(project) * 2))));
+    const cue = {
+      caption_id: uniqueId("promo_caption"),
+      start_frame: start,
+      end_frame: end,
+      text: cleanText,
+      original_text: cleanText,
+      source: String(source || "manual"),
+      needs_review: source !== "manual"
+    };
+    project.promo.captions.cues.push(cue);
+    project.promo.captions.enabled = true;
+    return cue;
+  }
+
+  function updateCaption(project, captionId, values = {}) {
+    const cue = project.promo.captions.cues.find(row => row.caption_id === captionId);
+    if (!cue) return false;
+    if (Object.prototype.hasOwnProperty.call(values, "text")) {
+      const cleanText = String(values.text || "").trim();
+      if (!cleanText) return false;
+      cue.text = cleanText;
+      cue.needs_review = false;
+    }
+    if (Object.prototype.hasOwnProperty.call(values, "start_frame")) cue.start_frame = Math.max(0, Math.round(Number(values.start_frame || 0)));
+    if (Object.prototype.hasOwnProperty.call(values, "end_frame")) cue.end_frame = Math.max(cue.start_frame + 1, Math.round(Number(values.end_frame || 0)));
+    return true;
+  }
+
+  function removeCaption(project, captionId) {
+    const before = project.promo.captions.cues.length;
+    project.promo.captions.cues = project.promo.captions.cues.filter(row => row.caption_id !== captionId);
+    return project.promo.captions.cues.length !== before;
+  }
+
+  function dictionaryEntries(value) {
+    return String(value || "").split(/\r?\n/).map(line => {
+      const separator = line.indexOf("=");
+      if (separator <= 0) return null;
+      const from = line.slice(0, separator).trim();
+      const to = line.slice(separator + 1).trim();
+      return from && to ? { from, to } : null;
+    }).filter(Boolean);
+  }
+
+  function correctCaptionText(text, dictionaryText) {
+    let result = String(text || "");
+    for (const { from, to } of dictionaryEntries(dictionaryText)) {
+      const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(`(^|[^A-Za-z0-9_])(${escaped})(?=$|[^A-Za-z0-9_])`, "gi"), (_match, prefix) => `${prefix}${to}`);
+    }
+    return result;
+  }
+
+  function applyCaptionCorrections(project, dictionaryText) {
+    project.promo.captions.dictionary_text = String(dictionaryText || "");
+    let changed = 0;
+    for (const cue of project.promo.captions.cues) {
+      const corrected = correctCaptionText(cue.text, dictionaryText);
+      if (corrected !== cue.text) {
+        cue.text = corrected;
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  function activeCaption(project, frame) {
+    const at = Math.max(0, Math.round(Number(frame || 0)));
+    return project.promo.captions.cues.find(row => !row.excluded && at >= Number(row.start_frame || 0) && at < Number(row.end_frame || 0)) || null;
+  }
+
+  function evaluateFieldReadiness(details = {}) {
+    const microphonePeakDb = Number.isFinite(Number(details.microphone_peak_db)) ? Number(details.microphone_peak_db) : -120;
+    const checks = [
+      { id: "secure", label: "Secure browser context", status: details.secure_context ? "pass" : "fail" },
+      { id: "camera", label: "Camera input", status: details.camera_ready ? "pass" : "fail" },
+      { id: "microphone", label: "Microphone input", status: details.microphone_ready ? "pass" : "fail" },
+      { id: "microphone_signal", label: "Microphone signal", status: details.microphone_ready ? (microphonePeakDb > -55 ? "pass" : "warn") : "unknown" },
+      { id: "recorder", label: "Direct browser recorder", status: details.recorder_ready ? "pass" : "warn" },
+      { id: "storage", label: "Local storage", status: Number(details.storage_available_mb || 0) >= 250 ? "pass" : (Number(details.storage_available_mb || 0) > 0 ? "warn" : "unknown") }
+    ];
+    const failed = checks.filter(row => row.status === "fail");
+    const warnings = checks.filter(row => row.status === "warn" || row.status === "unknown");
+    const status = failed.length ? "blocked" : (warnings.length ? "warning" : "ready");
+    return {
+      status,
+      checked_at: String(details.checked_at || new Date().toISOString()),
+      camera_ready: Boolean(details.camera_ready),
+      microphone_ready: Boolean(details.microphone_ready),
+      microphone_signal_detected: microphonePeakDb > -55,
+      microphone_peak_db: Math.max(-120, Math.min(0, microphonePeakDb)),
+      recorder_ready: Boolean(details.recorder_ready),
+      storage_available_mb: Math.max(0, Math.round(Number(details.storage_available_mb || 0))),
+      summary: status === "ready" ? "Camera, microphone, recorder, and storage are ready." : status === "warning" ? "Recording works, but review the warnings before a long take." : "This device needs attention before direct browser recording.",
+      checks
+    };
+  }
+
+  function touchRevision(project, editorName = "") {
+    const collaboration = project.collaboration || (project.collaboration = {});
+    const previous = String(collaboration.revision_id || project.timeline?.revision_id || "");
+    collaboration.parent_revision_id = previous;
+    collaboration.base_revision_id = String(collaboration.base_revision_id || previous);
+    collaboration.revision_id = uniqueId("promo_revision");
+    collaboration.revision_number = Math.max(0, Number(collaboration.revision_number || 0)) + 1;
+    collaboration.editor_name = String(editorName || collaboration.editor_name || "").trim();
+    collaboration.updated_at = new Date().toISOString();
+    collaboration.conflict_status = "local_only";
+    collaboration.cloud_sync_status = "not_configured";
+    project.timeline.revision_id = collaboration.revision_id;
+    return collaboration;
+  }
+
+  function compareRevisions(currentProject, incomingProject) {
+    if (String(currentProject?.project_id || "") !== String(incomingProject?.project_id || "")) return "different_project";
+    const current = currentProject?.collaboration || {};
+    const incoming = incomingProject?.collaboration || {};
+    if (current.revision_id && current.revision_id === incoming.revision_id) return "same";
+    if (current.revision_id && incoming.parent_revision_id === current.revision_id) return "fast_forward";
+    if (incoming.revision_id && current.parent_revision_id === incoming.revision_id) return "stale";
+    return "diverged";
+  }
+
   function exportHandoff(project) {
     const payload = normalizeProject(project);
     payload.schema = RETURN_SCHEMA;
@@ -422,6 +733,11 @@
       take_count: payload.assets.length,
       sequence_clip_count: payload.clips.length
     };
+    payload.package_metadata.last_editor = String(payload.collaboration?.editor_name || "");
+    payload.package_metadata.revision_id = String(payload.collaboration?.revision_id || "");
+    payload.package_metadata.parent_revision_id = String(payload.collaboration?.parent_revision_id || "");
+    payload.package_metadata.revision_number = Number(payload.collaboration?.revision_number || 0);
+    payload.package_metadata.cloud_sync_status = "not_configured";
     payload.timeline.metadata = {
       ...(payload.timeline.metadata || {}),
       project_kind: "wrestling_promo",
@@ -437,6 +753,7 @@
     DEFAULT_FPS,
     VOICE_PRESETS,
     PROMO_TYPES,
+    PROMO_TEMPLATES,
     uniqueId,
     clone,
     createProject,
@@ -451,12 +768,24 @@
     toggleFavorite,
     appendTake,
     compactSequence,
+    syncClipCaptions,
     moveClip,
     trimClip,
     splitClip,
     rippleDelete,
     setVoicePreset,
     addNote,
+    applyTemplate,
+    addCaption,
+    updateCaption,
+    removeCaption,
+    dictionaryEntries,
+    correctCaptionText,
+    applyCaptionCorrections,
+    activeCaption,
+    evaluateFieldReadiness,
+    touchRevision,
+    compareRevisions,
     exportHandoff
   });
 })(window);
