@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.4.1";
-const APP_VERSION_CODE = 27;
+const APP_VERSION = "0.4.2";
+const APP_VERSION_CODE = 28;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -10,6 +10,8 @@ const PROJECT_STATE_STORAGE_PREFIX = "peco_mobile_reviewer_project_state:";
 const PROJECT_RETURN_STORAGE_PREFIX = "peco_mobile_reviewer_return_sent:";
 const NOTE_PALETTE_STORAGE_KEY = "peco_mobile_reviewer_note_palette:v1";
 const PERFORMANCE_MODE_STORAGE_KEY = "peco_mobile_reviewer_performance_mode:v1";
+const GESTURE_COACH_STORAGE_KEY = `peco_mobile_reviewer_gesture_coach:v${APP_VERSION_CODE}`;
+const GESTURE_COACH_DURATION_MS = 6500;
 const DOUBLE_TAP_MS = 320;
 const EDGE_TAP_RATIO = 0.35;
 const EDGE_SEEK_SECONDS = 5;
@@ -99,6 +101,9 @@ const elements = {
   audioMaster: document.getElementById("audioMaster"),
   viewerEmpty: document.getElementById("viewerEmpty"),
   skipFeedback: document.getElementById("skipFeedback"),
+  mobileMenuButton: document.getElementById("mobileMenuButton"),
+  gestureHelpButton: document.getElementById("gestureHelpButton"),
+  gestureCoach: document.getElementById("gestureCoach"),
   addClipButton: document.getElementById("addClipButton"),
   addNoteButton: document.getElementById("addNoteButton"),
   clipCaptureBadge: document.getElementById("clipCaptureBadge"),
@@ -130,6 +135,7 @@ const elements = {
   markerTitleInput: document.getElementById("markerTitleInput"),
   markerNoteInput: document.getElementById("markerNoteInput"),
   saveMarkerButton: document.getElementById("saveMarkerButton"),
+  previewClipButton: document.getElementById("previewClipButton"),
   closePreviewActionMenuButton: document.getElementById("closePreviewActionMenuButton"),
   contextMenu: document.getElementById("contextMenu"),
   contextMenuTitle: document.getElementById("contextMenuTitle"),
@@ -159,6 +165,7 @@ const elements = {
   undoDecisionButton: document.getElementById("undoDecisionButton"),
   redoDecisionButton: document.getElementById("redoDecisionButton"),
   mobileLoadPackageButton: document.getElementById("mobileLoadPackageButton"),
+  mobileOptionsRow: document.getElementById("mobileOptionsRow"),
   mobileReviewLibraryButton: document.getElementById("mobileReviewLibraryButton"),
   mobileReviewSetupButton: document.getElementById("mobileReviewSetupButton"),
   mobileSaveStateButton: document.getElementById("mobileSaveStateButton"),
@@ -278,6 +285,7 @@ const state = {
     lastTap: null
   },
   skipFeedbackTimer: 0,
+  gestureCoachTimer: 0,
   viewerLongPress: null,
   suppressViewerTap: false,
   angleSwipeGesture: null,
@@ -381,6 +389,33 @@ elements.cancelClipCaptureButton.addEventListener("click", event => {
   cancelClipCapture({ status: "Clip IN canceled." });
 });
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
+elements.previewClipButton.addEventListener("click", () => {
+  const capturing = Number.isInteger(state.clipCaptureInFrame);
+  closePreviewActionMenu();
+  toggleClipCapture();
+  setStatus(capturing ? "Saved clip OUT from the Program gesture menu." : "Clip IN set. Hold Program again to set Clip OUT.");
+});
+for (const button of [elements.mobileMenuButton, elements.gestureHelpButton]) {
+  button.addEventListener("pointerdown", event => event.stopPropagation());
+}
+elements.mobileMenuButton.addEventListener("click", event => {
+  event.stopPropagation();
+  setMobileMenuOpen(!document.body.classList.contains("mobile-options-open"));
+});
+elements.gestureHelpButton.addEventListener("click", event => {
+  event.stopPropagation();
+  showGestureCoach({ force: true, persistent: true });
+});
+elements.gestureCoach.addEventListener("pointerdown", event => event.stopPropagation());
+elements.gestureCoach.addEventListener("click", event => {
+  event.stopPropagation();
+  hideGestureCoach();
+});
+elements.mobileOptionsRow.addEventListener("click", event => {
+  if (event.target.closest("button, a")) {
+    setMobileMenuOpen(false);
+  }
+});
 elements.markerTitleInput.addEventListener("keydown", handleMarkerEditorKeydown);
 elements.markerNoteInput.addEventListener("keydown", handleMarkerEditorKeydown);
 elements.shortcutsButton.addEventListener("click", openShortcutMenu);
@@ -474,6 +509,11 @@ window.addEventListener("scroll", closeContextMenu, { passive: true, capture: tr
 document.addEventListener("pointerdown", event => {
   if (!elements.contextMenu.classList.contains("hidden") && !event.target.closest("#contextMenu")) {
     closeContextMenu();
+  }
+  if (document.body.classList.contains("mobile-options-open")
+    && !event.target.closest("#mobileOptionsRow")
+    && !event.target.closest("#mobileMenuButton")) {
+    setMobileMenuOpen(false);
   }
 });
 document.addEventListener("visibilitychange", handlePlaybackVisibilityChange);
@@ -888,6 +928,7 @@ function resetProject(options = {}) {
   clearTimeout(state.stateSaveTimer);
   clearTimeout(state.tapGesture.timer);
   clearTimeout(state.skipFeedbackTimer);
+  clearTimeout(state.gestureCoachTimer);
   state.project = null;
   state.sourceManifest = null;
   state.browserPackageStored = false;
@@ -946,6 +987,8 @@ function resetProject(options = {}) {
   state.collaboration = reviewWorkflow().normalizeCollaboration(null);
   state.tapGesture.lastTap = null;
   state.suppressViewerTap = false;
+  setMobileMenuOpen(false);
+  hideGestureCoach();
   clearClipLongPress();
   clearViewerLongPress();
   clearAnglePreviewSwipe();
@@ -1013,6 +1056,7 @@ function loadProjectManifest(raw, options = {}) {
   } else {
     setStatus(`Loaded ${project.name}.`);
   }
+  showGestureCoach();
 }
 
 function normalizeProject(raw) {
@@ -1491,13 +1535,13 @@ function handlePlaybackVisibilityChange() {
   if (document.hidden && state.isPlaying) {
     state.pausedForVisibility = true;
     pausePlayback({ silent: true });
-    setStatus("Paused while PECO was in the background. Tap Play to resume in sync.");
+    setStatus("Paused while PECO was in the background. Tap Program to resume in sync.");
     return;
   }
   if (!document.hidden && state.pausedForVisibility && isReady()) {
     state.pausedForVisibility = false;
     syncAllVideos();
-    setStatus("PECO is back in sync. Tap Play when ready.");
+    setStatus("PECO is back in sync. Tap Program when ready.");
   }
 }
 
@@ -1619,6 +1663,7 @@ function renderTransport() {
   elements.customizeNotePaletteButton.disabled = !loaded;
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
+  elements.mobileMenuButton.disabled = !loaded;
   renderClipCapture();
   renderRenderMenu();
 }
@@ -3562,6 +3607,9 @@ function openPreviewActionMenu(frame, options = {}) {
   elements.markerTitleInput.value = marker?.label || "";
   elements.markerNoteInput.value = marker?.note || "";
   elements.saveMarkerButton.textContent = marker ? "Save Marker" : "Add Marker";
+  elements.previewClipButton.hidden = Boolean(marker);
+  elements.previewClipButton.textContent = Number.isInteger(state.clipCaptureInFrame) ? "Set Clip OUT" : "Start Clip";
+  elements.previewClipButton.disabled = !isReady() || Boolean(state.clipRender);
   renderMarkerCategoryButtons();
   elements.previewActionMenu.classList.remove("hidden");
   elements.markerTitleInput.focus();
@@ -3588,6 +3636,7 @@ function closePreviewActionMenu(options = {}) {
   elements.markerTitleInput.value = "";
   elements.markerNoteInput.value = "";
   elements.saveMarkerButton.textContent = "Add Marker";
+  elements.previewClipButton.hidden = false;
   if (options.status) {
     setStatus(options.status);
   }
@@ -3680,6 +3729,12 @@ function handleViewerTap(event) {
     : x > rect.width * (1 - EDGE_TAP_RATIO)
       ? "right"
       : "center";
+  if (side === "center") {
+    clearTimeout(state.tapGesture.timer);
+    state.tapGesture.lastTap = null;
+    togglePlayback();
+    return;
+  }
   const now = performance.now();
   const previous = state.tapGesture.lastTap;
   if (previous && side !== "center" && previous.side === side && now - previous.time <= DOUBLE_TAP_MS) {
@@ -3699,6 +3754,40 @@ function handleViewerTap(event) {
     state.tapGesture.lastTap = null;
     togglePlayback();
   }, DOUBLE_TAP_MS + 30);
+}
+
+function isMobileReviewLayout() {
+  return window.matchMedia(MOBILE_PREVIEW_MEDIA_QUERY).matches;
+}
+
+function setMobileMenuOpen(open) {
+  const next = Boolean(open && isMobileReviewLayout() && isReady());
+  document.body.classList.toggle("mobile-options-open", next);
+  elements.mobileMenuButton.setAttribute("aria-expanded", String(next));
+}
+
+function showGestureCoach(options = {}) {
+  if (!isReady() || !isMobileReviewLayout()) {
+    return;
+  }
+  if (!options.force && localStorage.getItem(GESTURE_COACH_STORAGE_KEY) === "shown") {
+    return;
+  }
+  setMobileMenuOpen(false);
+  clearTimeout(state.gestureCoachTimer);
+  elements.gestureCoach.classList.remove("hidden");
+  if (!options.force) {
+    localStorage.setItem(GESTURE_COACH_STORAGE_KEY, "shown");
+  }
+  if (!options.persistent) {
+    state.gestureCoachTimer = setTimeout(hideGestureCoach, GESTURE_COACH_DURATION_MS);
+  }
+}
+
+function hideGestureCoach() {
+  clearTimeout(state.gestureCoachTimer);
+  state.gestureCoachTimer = 0;
+  elements.gestureCoach.classList.add("hidden");
 }
 
 function seekRelativeSeconds(seconds) {
@@ -3746,11 +3835,27 @@ function showCutCorrectionFeedback(cameraName) {
 }
 
 function togglePlayback() {
+  const wasPlaying = state.isPlaying;
   if (state.isPlaying) {
     pausePlayback();
   } else {
     playFromCurrentFrame();
   }
+  showPlaybackGestureFeedback(wasPlaying ? "Pause" : "Play");
+}
+
+function showPlaybackGestureFeedback(label) {
+  clearTimeout(state.skipFeedbackTimer);
+  elements.skipFeedback.textContent = label;
+  elements.skipFeedback.classList.remove("hidden", "left", "right");
+  elements.skipFeedback.classList.add("correction");
+  if (isMobileReviewLayout() && navigator.vibrate) {
+    navigator.vibrate(10);
+  }
+  state.skipFeedbackTimer = setTimeout(() => {
+    elements.skipFeedback.classList.add("hidden");
+    elements.skipFeedback.classList.remove("correction");
+  }, 420);
 }
 
 function playFromCurrentFrame() {
@@ -4456,6 +4561,14 @@ function editFocusedMarker() {
 }
 
 function closeActiveOverlay() {
+  if (!elements.gestureCoach.classList.contains("hidden")) {
+    hideGestureCoach();
+    return true;
+  }
+  if (document.body.classList.contains("mobile-options-open")) {
+    setMobileMenuOpen(false);
+    return true;
+  }
   if (!elements.contextMenu.classList.contains("hidden")) {
     closeContextMenu();
     return true;
@@ -4675,6 +4788,8 @@ function renderClipCapture() {
   elements.addClipButton.disabled = !isReady() || Boolean(state.clipRender);
   elements.addClipButton.textContent = capturing ? "Set Clip OUT" : "+ Clip";
   elements.addClipButton.classList.toggle("capturing", capturing);
+  elements.previewClipButton.textContent = capturing ? "Set Clip OUT" : "Start Clip";
+  elements.previewClipButton.disabled = !isReady() || Boolean(state.clipRender);
   elements.clipCaptureBadge.classList.toggle("hidden", !capturing);
   elements.clipCaptureLabel.textContent = capturing
     ? `Clip IN ${clipFrameTimecode(state.clipCaptureInFrame)}`

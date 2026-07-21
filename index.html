@@ -57,6 +57,22 @@
             </div>
           </div>
           <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
+          <div class="viewer-mobile-tools" aria-label="Mobile viewer options">
+            <button id="mobileMenuButton" type="button" aria-label="Open project and edit menu" aria-expanded="false">&#8943;</button>
+            <button id="gestureHelpButton" type="button" aria-label="Show gesture controls">?</button>
+          </div>
+          <div class="gesture-coach hidden" id="gestureCoach" role="dialog" aria-label="Gesture controls" tabindex="0">
+            <strong>Control PECO with the picture</strong>
+            <div class="gesture-coach-grid">
+              <span><b>Tap Program</b> Play / pause</span>
+              <span><b>Double-tap sides</b> Back / forward 5s</span>
+              <span><b>Hold Program</b> Add a note or clip</span>
+              <span><b>Tap a camera</b> Make the cut</span>
+              <span><b>Swipe camera row</b> Remove the latest cut</span>
+              <span><b>Drag timeline</b> Scrub anywhere</span>
+            </div>
+            <small>Tap this guide to close. Use ? to see it again.</small>
+          </div>
           <div class="viewer-action-buttons">
             <button class="viewer-note-button" id="addClipButton" type="button" title="Press once for clip IN and again for clip OUT" disabled>+ Clip</button>
             <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
@@ -96,7 +112,7 @@
     </main>
 
     <footer class="control-deck">
-      <div class="mobile-options-row" aria-label="Mobile package and decision options">
+      <div class="mobile-options-row" id="mobileOptionsRow" aria-label="Mobile package and decision options">
         <button class="mobile-option" id="mobileLoadPackageButton" type="button">Open</button>
         <button class="mobile-option" id="mobileReviewLibraryButton" type="button">Reviews</button>
         <button class="mobile-option" id="mobileReviewSetupButton" type="button" disabled>Setup</button>
@@ -234,6 +250,7 @@
         <textarea id="markerNoteInput" rows="3" maxlength="1000" placeholder="Add context for the editor"></textarea>
       </label>
       <div class="menu-action-row">
+        <button class="secondary" id="previewClipButton" type="button">Start Clip</button>
         <button class="primary" id="saveMarkerButton" type="button">Add Note</button>
         <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>
       </div>

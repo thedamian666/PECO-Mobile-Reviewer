@@ -1,4 +1,4 @@
-const CACHE_NAME = "peco-mobile-multicam-shell-v27";
+const CACHE_NAME = "peco-mobile-multicam-shell-v28";
 const APP_SHELL = [
   "./",
   "./index.html",
