@@ -1,5 +1,9 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.4.2",
+  "version": "0.4.3",
+  "notes": [
+    "Mobile JOG opens the 2x, 4x, and 8x shuttle without shrinking Program.",
+    "Review Inbox identifies each on-device Let's Play, Wrestling, or General cloud lane."
+  ],
   "media_included": false
 }

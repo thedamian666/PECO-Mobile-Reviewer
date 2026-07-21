@@ -14,6 +14,7 @@
   const PALETTE_SCHEMA = "peco.mobile_note_palette.v1";
   const COLLABORATION_SCHEMA = "peco.mobile_review_collaboration.v1";
   const SUMMARY_SCHEMA = "peco.mobile_review_summary.v1";
+  const CLOUD_ASSIGNMENT_SCHEMA = "peco.review_cloud_assignment.v1";
   const WORKFLOW_PROFILES = Object.freeze([
     Object.freeze({
       id: "general",
@@ -176,8 +177,71 @@
     };
   }
 
+  function normalizeReviewCloud(value, context = {}) {
+    const source = value && typeof value === "object" ? value : {};
+    const workflowId = normalizeWorkflowId(
+      context.workflowId || context.workflow || source.workflow_id,
+      context.projectName || ""
+    );
+    const expectedKind = workflowId === "lets_play"
+      ? "lets_play"
+      : workflowId === "wrestling"
+        ? "wrestling"
+        : "general";
+    const requested = String(source.workspace_kind || source.kind || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const aliases = {
+      let_s_play: "lets_play",
+      letsplay: "lets_play",
+      gameplay: "lets_play",
+      pro_wrestling: "wrestling",
+      sports_entertainment: "wrestling",
+      review: "general"
+    };
+    const requestedKind = aliases[requested] || requested;
+    const validRequested = ["lets_play", "wrestling", "general"].includes(requestedKind)
+      ? requestedKind
+      : "";
+    const kind = ["lets_play", "wrestling"].includes(workflowId)
+      ? expectedKind
+      : validRequested || expectedKind;
+    const labels = {
+      lets_play: "Let's Play Projects",
+      wrestling: "Wrestling Projects",
+      general: "General Review Projects"
+    };
+    const slug = raw => String(raw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "untitled";
+    const organizationId = kind === "wrestling"
+      ? slug(source.organization_id || source.organization_label || "independent-wrestling")
+      : "";
+    const correctedMismatch = Boolean(validRequested && validRequested !== kind && ["lets_play", "wrestling"].includes(workflowId));
+    return {
+      schema: CLOUD_ASSIGNMENT_SCHEMA,
+      workspace_kind: kind,
+      workspace_id: slug(correctedMismatch ? kind : source.workspace_id || kind),
+      workspace_label: trimmedText(correctedMismatch ? labels[kind] : source.workspace_label || labels[kind], 120),
+      organization_id: organizationId,
+      organization_label: kind === "wrestling"
+        ? trimmedText(source.organization_label || source.organization_id || "Independent Wrestling", 120)
+        : "",
+      project_key: slug(source.project_key || context.projectId || context.projectName || "review"),
+      corrected_workspace_mismatch: correctedMismatch
+    };
+  }
+
   function reviewSummary(options = {}) {
     const collaboration = normalizeCollaboration(options.collaboration, options.context || {});
+    const reviewCloud = normalizeReviewCloud(options.reviewCloud, {
+      ...(options.context || {}),
+      workflowId: collaboration.workflow_id
+    });
     const profile = workflowProfile(collaboration.workflow_id);
     const markers = Array.isArray(options.markers) ? options.markers : [];
     const decisions = Array.isArray(options.decisions) ? options.decisions : [];
@@ -195,6 +259,10 @@
       assigned_to: collaboration.assigned_to,
       requested_by: collaboration.requested_by,
       instructions: collaboration.instructions,
+      workspace_kind: reviewCloud.workspace_kind,
+      workspace_label: reviewCloud.workspace_label,
+      organization_id: reviewCloud.organization_id,
+      organization_label: reviewCloud.organization_label,
       camera_change_count: decisions.length,
       marker_count: markers.length,
       clip_count: clips.length,
@@ -240,6 +308,7 @@
     PALETTE_SCHEMA,
     COLLABORATION_SCHEMA,
     SUMMARY_SCHEMA,
+    CLOUD_ASSIGNMENT_SCHEMA,
     stableValue,
     reviewFingerprint,
     inboxStatus,
@@ -248,6 +317,7 @@
     normalizeWorkflowId,
     workflowProfile,
     normalizeCollaboration,
+    normalizeReviewCloud,
     reviewSummary,
     buildReturnMetadata
   };

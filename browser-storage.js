@@ -166,6 +166,7 @@
     const project = record?.project || {};
     const metadata = project.package_metadata || {};
     const collaboration = project.collaboration || metadata.review_collaboration || {};
+    const reviewCloud = project.review_cloud || metadata.review_cloud || {};
     return {
       projectId: String(record?.projectId || ""),
       name: String(project.project_name || project.name || "PECO Review"),
@@ -181,7 +182,8 @@
       assignedTo: String(collaboration.assigned_to || ""),
       requestedBy: String(collaboration.requested_by || ""),
       instructions: String(collaboration.instructions || ""),
-      collaboration
+      collaboration,
+      reviewCloud
     };
   }
 

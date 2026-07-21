@@ -59,6 +59,7 @@
           <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
           <div class="viewer-mobile-tools" aria-label="Mobile viewer options">
             <button id="mobileMenuButton" type="button" aria-label="Open project and edit menu" aria-expanded="false">&#8943;</button>
+            <button id="mobileJogButton" type="button" aria-label="Open playback jogger" aria-controls="mobileJogPanel" aria-expanded="false" disabled>JOG</button>
             <button id="gestureHelpButton" type="button" aria-label="Show gesture controls">?</button>
           </div>
           <div class="gesture-coach hidden" id="gestureCoach" role="dialog" aria-label="Gesture controls" tabindex="0">
@@ -70,6 +71,7 @@
               <span><b>Tap a camera</b> Make the cut</span>
               <span><b>Swipe camera row</b> Remove the latest cut</span>
               <span><b>Drag timeline</b> Scrub anywhere</span>
+              <span><b>Tap JOG</b> Shuttle 2x / 4x / 8x</span>
             </div>
             <small>Tap this guide to close. Use ? to see it again.</small>
           </div>
@@ -163,7 +165,7 @@
 
       <ol class="mobile-marker-list" id="mobileMarkerList" aria-label="Timecoded review notes"></ol>
 
-      <div class="jog-row">
+      <div class="jog-row" id="mobileJogPanel">
         <div class="jog-label"><span>Shuttle</span><strong id="jogReadout">Stop</strong></div>
         <div class="jog-wheel" id="jogWheel" role="slider" title="Drag left for reverse or right for forward. Distance selects 2x, 4x, or 8x speed." aria-label="Playback shuttle: drag left for reverse or right for forward" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Stopped">
           <div class="jog-scale" aria-hidden="true"><span>8x</span><span>4x</span><span>2x</span><span>Stop</span><span>2x</span><span>4x</span><span>8x</span></div>

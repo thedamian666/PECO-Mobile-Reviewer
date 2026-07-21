@@ -1,8 +1,12 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.4.2";
-const APP_VERSION_CODE = 28;
+const APP_VERSION = "0.4.3";
+const APP_VERSION_CODE = 29;
+const APP_PATCH_NOTES = Object.freeze([
+  "Mobile JOG opens the 2x, 4x, and 8x shuttle without shrinking Program.",
+  "Review Inbox now identifies each on-device Let's Play, Wrestling, or General cloud lane."
+]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -102,6 +106,7 @@ const elements = {
   viewerEmpty: document.getElementById("viewerEmpty"),
   skipFeedback: document.getElementById("skipFeedback"),
   mobileMenuButton: document.getElementById("mobileMenuButton"),
+  mobileJogButton: document.getElementById("mobileJogButton"),
   gestureHelpButton: document.getElementById("gestureHelpButton"),
   gestureCoach: document.getElementById("gestureCoach"),
   addClipButton: document.getElementById("addClipButton"),
@@ -395,12 +400,16 @@ elements.previewClipButton.addEventListener("click", () => {
   toggleClipCapture();
   setStatus(capturing ? "Saved clip OUT from the Program gesture menu." : "Clip IN set. Hold Program again to set Clip OUT.");
 });
-for (const button of [elements.mobileMenuButton, elements.gestureHelpButton]) {
+for (const button of [elements.mobileMenuButton, elements.mobileJogButton, elements.gestureHelpButton]) {
   button.addEventListener("pointerdown", event => event.stopPropagation());
 }
 elements.mobileMenuButton.addEventListener("click", event => {
   event.stopPropagation();
   setMobileMenuOpen(!document.body.classList.contains("mobile-options-open"));
+});
+elements.mobileJogButton.addEventListener("click", event => {
+  event.stopPropagation();
+  setMobileJogOpen(!document.body.classList.contains("mobile-jog-open"));
 });
 elements.gestureHelpButton.addEventListener("click", event => {
   event.stopPropagation();
@@ -748,11 +757,19 @@ function renderReviewLibrary() {
   elements.reviewLibraryList.innerHTML = "";
   const statusOrder = { ready: 0, in_review: 1, new: 2, sent: 3 };
   const rows = state.reviewLibraryRows
-    .map(review => ({
-      ...review,
-      inboxStatus: reviewProgressStatus(review.projectId),
-      collaboration: reviewCollaborationForPackage(review)
-    }))
+    .map(review => {
+      const collaboration = reviewCollaborationForPackage(review);
+      return {
+        ...review,
+        inboxStatus: reviewProgressStatus(review.projectId),
+        collaboration,
+        reviewCloud: reviewWorkflow().normalizeReviewCloud(review.reviewCloud, {
+          workflowId: collaboration.workflow_id,
+          projectId: review.projectId,
+          projectName: review.name
+        })
+      };
+    })
     .sort((left, right) => (
       (statusOrder[left.inboxStatus.id] ?? 9) - (statusOrder[right.inboxStatus.id] ?? 9)
       || reviewAssignmentPriority(left.collaboration) - reviewAssignmentPriority(right.collaboration)
@@ -770,9 +787,20 @@ function renderReviewLibrary() {
   const assignedToReviewer = reviewerName
     ? rows.filter(review => review.collaboration.assigned_to.toLowerCase() === reviewerName.toLowerCase()).length
     : 0;
+  const workspaceCounts = rows.reduce((result, review) => {
+    const kind = review.reviewCloud.workspace_kind || "general";
+    result[kind] = (result[kind] || 0) + 1;
+    return result;
+  }, {});
+  const workspaceSummary = [
+    workspaceCounts.lets_play ? `${workspaceCounts.lets_play} Let's Play` : "",
+    workspaceCounts.wrestling ? `${workspaceCounts.wrestling} Wrestling` : "",
+    workspaceCounts.general ? `${workspaceCounts.general} General` : ""
+  ].filter(Boolean).join(", ");
   elements.reviewLibrarySummary.textContent = [
     `${rows.length} review${rows.length === 1 ? "" : "s"}`,
     `${counts.ready || 0} ready to send`,
+    workspaceSummary || "No cloud lanes yet",
     reviewerName ? `${assignedToReviewer} assigned to ${reviewerName}` : "Add your reviewer name to prioritize assignments"
   ].join(" | ");
   for (const button of elements.reviewLibraryFilters.querySelectorAll("button[data-review-filter]")) {
@@ -802,10 +830,16 @@ function renderReviewLibrary() {
     const profile = reviewWorkflow().workflowProfile(review.collaboration.workflow_id);
     const assignment = review.collaboration.assigned_to ? ` | Assigned to ${review.collaboration.assigned_to}` : "";
     details.textContent = `${profile.label} | ${mode}${assignment} | ${framesToTimecode(review.durationFrames, review.fps)} | ${formatBytes(review.sizeBytes)}`;
+    const cloudLane = document.createElement("span");
+    cloudLane.className = "review-library-cloud";
+    const organization = review.reviewCloud.workspace_kind === "wrestling" && review.reviewCloud.organization_label
+      ? ` / ${review.reviewCloud.organization_label}`
+      : "";
+    cloudLane.textContent = `On device · ${review.reviewCloud.workspace_label}${organization}`;
     const status = document.createElement("span");
     status.className = `review-library-status ${review.inboxStatus.cssClass}`;
     status.textContent = review.inboxStatus.label;
-    openButton.append(title, details, status);
+    openButton.append(title, details, cloudLane, status);
     openButton.addEventListener("click", () => openStoredReview(review.projectId));
 
     const removeButton = document.createElement("button");
@@ -925,6 +959,7 @@ function formatBytes(bytes) {
 function resetProject(options = {}) {
   cancelProxyClipRender({ quiet: true });
   pausePlayback();
+  setMobileJogOpen(false);
   clearTimeout(state.stateSaveTimer);
   clearTimeout(state.tapGesture.timer);
   clearTimeout(state.skipFeedbackTimer);
@@ -1125,6 +1160,11 @@ function normalizeProject(raw) {
     workflow: packageMetadata.workflow || reviewMode,
     projectName
   });
+  const reviewCloud = reviewWorkflow().normalizeReviewCloud(packageMetadata.review_cloud || raw.review_cloud, {
+    workflowId: collaboration.workflow_id,
+    projectId: String(raw.project_id || raw.id || ""),
+    projectName
+  });
   return {
     schema: raw.schema || PROJECT_SCHEMA,
     id: String(raw.project_id || raw.id || cryptoRandomId()),
@@ -1141,6 +1181,7 @@ function normalizeProject(raw) {
     packageMetadata,
     reviewMode,
     collaboration,
+    reviewCloud,
     packageRevisionId: String(reviewRoundtrip.package_revision_id || packageMetadata.package_revision_id || ""),
     packageReturnHeadId: String(reviewRoundtrip.return_head_id || packageMetadata.return_head_id || ""),
     defaultNotePaletteIds: Array.isArray(packageMetadata.fast_note_palette)
@@ -1596,6 +1637,13 @@ function renderProjectLine() {
   const collaboration = reviewWorkflow().normalizeCollaboration(state.collaboration);
   const profile = activeWorkflowProfile();
   const parts = [profile.label];
+  const cloud = project.reviewCloud;
+  if (cloud?.workspace_label) {
+    const organization = cloud.workspace_kind === "wrestling" && cloud.organization_label
+      ? ` / ${cloud.organization_label}`
+      : "";
+    parts.push(`${cloud.workspace_label}${organization}`);
+  }
   if (collaboration.assigned_to) {
     parts.push(`Assigned to ${collaboration.assigned_to}`);
   }
@@ -1664,6 +1712,7 @@ function renderTransport() {
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
   elements.mobileMenuButton.disabled = !loaded;
+  elements.mobileJogButton.disabled = !loaded;
   renderClipCapture();
   renderRenderMenu();
 }
@@ -3760,8 +3809,24 @@ function isMobileReviewLayout() {
   return window.matchMedia(MOBILE_PREVIEW_MEDIA_QUERY).matches;
 }
 
+function setMobileJogOpen(open) {
+  const next = Boolean(open && isMobileReviewLayout() && isReady());
+  if (next) {
+    setMobileMenuOpen(false);
+    hideGestureCoach();
+  } else if (state.jogDrag || state.shuttleRaf) {
+    endJog();
+  }
+  document.body.classList.toggle("mobile-jog-open", next);
+  elements.mobileJogButton.setAttribute("aria-expanded", String(next));
+  elements.mobileJogButton.setAttribute("aria-label", next ? "Close playback jogger" : "Open playback jogger");
+}
+
 function setMobileMenuOpen(open) {
   const next = Boolean(open && isMobileReviewLayout() && isReady());
+  if (next) {
+    setMobileJogOpen(false);
+  }
   document.body.classList.toggle("mobile-options-open", next);
   elements.mobileMenuButton.setAttribute("aria-expanded", String(next));
 }
@@ -3774,6 +3839,7 @@ function showGestureCoach(options = {}) {
     return;
   }
   setMobileMenuOpen(false);
+  setMobileJogOpen(false);
   clearTimeout(state.gestureCoachTimer);
   elements.gestureCoach.classList.remove("hidden");
   if (!options.force) {
@@ -4567,6 +4633,10 @@ function closeActiveOverlay() {
   }
   if (document.body.classList.contains("mobile-options-open")) {
     setMobileMenuOpen(false);
+    return true;
+  }
+  if (document.body.classList.contains("mobile-jog-open")) {
+    setMobileJogOpen(false);
     return true;
   }
   if (!elements.contextMenu.classList.contains("hidden")) {
@@ -6313,6 +6383,7 @@ function buildCutsPayload() {
       name: reviewerName
     },
     collaboration: cloneJsonValue(state.collaboration),
+    review_cloud: cloneJsonValue(project.reviewCloud || {}),
     review_mode: project.reviewMode,
     package_metadata: cloneJsonValue(project.packageMetadata || {}),
     source_clip_mapping: project.angles.map(angle => ({
@@ -6376,6 +6447,7 @@ function buildCutsPayload() {
   };
   payload.review_summary = reviewWorkflow().reviewSummary({
     collaboration: payload.collaboration,
+    reviewCloud: payload.review_cloud,
     reviewerName,
     decisions: payload.selected_camera_changes,
     markers: payload.review_markers,
@@ -6573,7 +6645,7 @@ async function prepareAppUpdateState() {
   } catch {
     // Cache cleanup is best effort and must not touch durable project state.
   }
-  setStatus(`Updated to PECO Mobile ${APP_VERSION}. Saved projects were kept.`);
+  setStatus(`Updated to PECO Mobile ${APP_VERSION}. Saved projects were kept. What's new: ${APP_PATCH_NOTES.join(" ")}`);
 }
 
 async function loadProjectFromUrl() {
