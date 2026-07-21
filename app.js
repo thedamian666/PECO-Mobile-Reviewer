@@ -1,11 +1,11 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.4.3";
-const APP_VERSION_CODE = 29;
+const APP_VERSION = "0.4.4";
+const APP_VERSION_CODE = 30;
 const APP_PATCH_NOTES = Object.freeze([
-  "Mobile JOG opens the 2x, 4x, and 8x shuttle without shrinking Program.",
-  "Review Inbox now identifies each on-device Let's Play, Wrestling, or General cloud lane."
+  "Mobile JOG now opens in a compact inline row instead of covering notes, decisions, or the timeline.",
+  "The shuttle stays collapsible and scales cleanly in phone portrait and landscape."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";

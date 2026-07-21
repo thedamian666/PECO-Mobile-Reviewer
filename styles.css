@@ -3937,28 +3937,30 @@ body.clip-rendering .control-deck > * {
   }
 
   body.mobile-jog-open .jog-row {
-    position: fixed;
-    left: max(8px, env(safe-area-inset-left));
-    right: auto;
-    bottom: max(34px, calc(env(safe-area-inset-bottom) + 34px));
-    z-index: 88;
-    width: calc(100vw - 16px);
+    position: static;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
     max-width: none;
     box-sizing: border-box;
-    justify-self: auto;
-    min-height: 42px;
-    height: 42px;
+    justify-self: stretch;
+    align-self: stretch;
+    min-width: 0;
+    min-height: 34px;
+    height: 34px;
     margin: 0;
-    padding: 3px 6px;
+    padding: 2px 5px;
     display: grid !important;
-    grid-template-columns: 54px minmax(0, 1fr);
-    gap: 5px;
+    grid-area: jog;
+    grid-template-columns: clamp(44px, 14vw, 54px) minmax(0, 1fr);
+    gap: 4px;
     contain: layout;
-    border: 1px solid rgba(163, 230, 53, 0.72);
-    border-radius: 10px;
-    background: rgba(10, 14, 10, 0.96);
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.68);
-    backdrop-filter: blur(8px);
+    overflow: hidden;
+    border: 1px solid rgba(163, 230, 53, 0.48);
+    border-radius: 7px;
+    background: #101410;
+    box-shadow: none;
+    backdrop-filter: none;
   }
 
   body.mobile-jog-open .jog-label {
@@ -3969,7 +3971,7 @@ body.clip-rendering .control-deck > * {
   }
 
   body.mobile-jog-open .jog-label strong {
-    max-width: 54px;
+    max-width: 100%;
     overflow: hidden;
     color: #dfff9b;
     font-size: 8px;
@@ -3978,35 +3980,35 @@ body.clip-rendering .control-deck > * {
 
   body.mobile-jog-open .jog-wheel {
     min-width: 0;
-    height: 34px;
-    border-radius: 7px;
+    height: 28px;
+    border-radius: 5px;
   }
 
   body.mobile-jog-open .jog-scale {
-    left: 8px;
-    right: 8px;
-    top: 2px;
+    left: 6px;
+    right: 6px;
+    top: 1px;
     display: grid;
     font-size: 6px;
   }
 
   body.mobile-jog-open .jog-track {
-    left: 10px;
-    right: 10px;
-    top: 21px;
+    left: 8px;
+    right: 8px;
+    top: 18px;
     height: 3px;
   }
 
   body.mobile-jog-open .jog-center {
-    top: 11px;
-    bottom: 3px;
+    top: 9px;
+    bottom: 2px;
   }
 
   body.mobile-jog-open .jog-knob {
-    top: 10px;
-    width: 21px;
-    height: 21px;
-    margin-left: -10.5px;
+    top: 8px;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
   }
 
   .mobile-options-row {
@@ -4073,7 +4075,10 @@ body.clip-rendering .control-deck > * {
   }
 
   body.mobile-jog-open .jog-row {
-    width: calc(100vw - clamp(150px, 28vw, 260px) - 16px);
+    grid-column: 1;
+    grid-row: 5;
+    width: auto;
+    margin-inline: 8px;
   }
 
   .gesture-coach:not(.hidden) {
