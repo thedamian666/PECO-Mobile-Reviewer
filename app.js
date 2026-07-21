@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.2.2";
-const APP_VERSION_CODE = 24;
+const APP_VERSION = "0.3.0";
+const APP_VERSION_CODE = 25;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -121,14 +121,24 @@ const elements = {
   clearDecisionSelectionButton: document.getElementById("clearDecisionSelectionButton"),
   markerSelectionMenu: document.getElementById("markerSelectionMenu"),
   markerSelectionSummary: document.getElementById("markerSelectionSummary"),
+  editSelectedMarkerButton: document.getElementById("editSelectedMarkerButton"),
   deleteSelectedMarkersButton: document.getElementById("deleteSelectedMarkersButton"),
   clearMarkerSelectionButton: document.getElementById("clearMarkerSelectionButton"),
   previewActionMenu: document.getElementById("previewActionMenu"),
   previewActionSummary: document.getElementById("previewActionSummary"),
   markerCategoryButtons: document.getElementById("markerCategoryButtons"),
+  markerTitleInput: document.getElementById("markerTitleInput"),
   markerNoteInput: document.getElementById("markerNoteInput"),
   saveMarkerButton: document.getElementById("saveMarkerButton"),
   closePreviewActionMenuButton: document.getElementById("closePreviewActionMenuButton"),
+  contextMenu: document.getElementById("contextMenu"),
+  contextMenuTitle: document.getElementById("contextMenuTitle"),
+  contextMenuDetail: document.getElementById("contextMenuDetail"),
+  contextMenuActions: document.getElementById("contextMenuActions"),
+  shortcutsButton: document.getElementById("shortcutsButton"),
+  mobileShortcutsButton: document.getElementById("mobileShortcutsButton"),
+  shortcutMenu: document.getElementById("shortcutMenu"),
+  closeShortcutMenuButton: document.getElementById("closeShortcutMenuButton"),
   quickNotePalette: document.getElementById("quickNotePalette"),
   quickNoteButtons: document.getElementById("quickNoteButtons"),
   customizeNotePaletteButton: document.getElementById("customizeNotePaletteButton"),
@@ -238,6 +248,7 @@ const state = {
   markers: [],
   markerSelectionMode: false,
   selectedMarkerIds: new Set(),
+  selectedMarkerId: null,
   markerLongPress: null,
   suppressMarkerClickId: null,
   markerListAutoFollow: true,
@@ -247,6 +258,7 @@ const state = {
   selectedMarkerCategory: "note",
   notePaletteIds: [],
   previewActionFrame: null,
+  previewActionMarkerId: null,
   programVideos: new Map(),
   audioMasterAngleId: "",
   lastProgramSyncMs: 0,
@@ -279,8 +291,11 @@ const state = {
   clips: [],
   clipSelectionMode: false,
   selectedClipIds: new Set(),
+  selectedClipId: null,
   clipLongPress: null,
   suppressClipClickId: null,
+  focusedEditType: "decision",
+  contextMenuTarget: null,
   exportInFrame: 0,
   exportOutFrame: null,
   renderMode: "full",
@@ -334,11 +349,18 @@ elements.mobileUndoDecisionButton.addEventListener("click", undoDecision);
 elements.mobileRedoDecisionButton.addEventListener("click", redoDecision);
 elements.usePreviousAngleButton.addEventListener("click", removeCurrentCameraCut);
 elements.mobileClipToolsButton.addEventListener("click", () => openRenderMenu());
+elements.mobileShortcutsButton.addEventListener("click", openShortcutMenu);
 elements.mobileSaveServerButton.addEventListener("click", saveCutsToServer);
 elements.mobileExportButton.addEventListener("click", exportCuts);
 elements.deleteSelectedDecisionsButton.addEventListener("click", deleteSelectedDecisionFrames);
 elements.clearDecisionSelectionButton.addEventListener("click", () => exitDecisionSelection({ status: "Selection cleared." }));
 elements.deleteSelectedMarkersButton.addEventListener("click", deleteSelectedMarkers);
+elements.editSelectedMarkerButton.addEventListener("click", () => {
+  const markerId = [...state.selectedMarkerIds][0];
+  if (markerId) {
+    editMarker(markerId);
+  }
+});
 elements.clearMarkerSelectionButton.addEventListener("click", () => exitMarkerSelection({ status: "Note selection closed." }));
 elements.saveMarkerButton.addEventListener("click", savePreviewMarker);
 elements.addNoteButton.addEventListener("pointerdown", event => event.stopPropagation());
@@ -359,6 +381,10 @@ elements.cancelClipCaptureButton.addEventListener("click", event => {
   cancelClipCapture({ status: "Clip IN canceled." });
 });
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
+elements.markerTitleInput.addEventListener("keydown", handleMarkerEditorKeydown);
+elements.markerNoteInput.addEventListener("keydown", handleMarkerEditorKeydown);
+elements.shortcutsButton.addEventListener("click", openShortcutMenu);
+elements.closeShortcutMenuButton.addEventListener("click", closeShortcutMenu);
 elements.customizeNotePaletteButton.addEventListener("click", openNotePaletteMenu);
 elements.closeNotePaletteButton.addEventListener("click", closeNotePaletteMenu);
 elements.saveReviewSetupButton.addEventListener("click", saveReviewSetup);
@@ -443,6 +469,13 @@ for (const list of [elements.markerList, elements.mobileMarkerList]) {
 }
 window.addEventListener("keydown", handleKeydown);
 window.addEventListener("resize", schedulePreviewGridRefresh, { passive: true });
+window.addEventListener("resize", closeContextMenu, { passive: true });
+window.addEventListener("scroll", closeContextMenu, { passive: true, capture: true });
+document.addEventListener("pointerdown", event => {
+  if (!elements.contextMenu.classList.contains("hidden") && !event.target.closest("#contextMenu")) {
+    closeContextMenu();
+  }
+});
 document.addEventListener("visibilitychange", handlePlaybackVisibilityChange);
 
 async function openPackageImport() {
@@ -879,6 +912,7 @@ function resetProject(options = {}) {
   state.clips = [];
   state.clipSelectionMode = false;
   state.selectedClipIds.clear();
+  state.selectedClipId = null;
   state.clipLongPress = null;
   state.suppressClipClickId = null;
   state.exportInFrame = 0;
@@ -891,6 +925,7 @@ function resetProject(options = {}) {
   state.markers = [];
   state.markerSelectionMode = false;
   state.selectedMarkerIds.clear();
+  state.selectedMarkerId = null;
   state.markerLongPress = null;
   state.suppressMarkerClickId = null;
   state.markerListAutoFollow = true;
@@ -901,6 +936,10 @@ function resetProject(options = {}) {
   clearTimeout(state.markerListScrollTimer);
   clearTimeout(state.viewportRenderTimer);
   state.previewActionFrame = null;
+  state.previewActionMarkerId = null;
+  state.focusedEditType = "decision";
+  closeContextMenu();
+  closeShortcutMenu();
   state.reviewSessionId = "";
   state.returnHeadId = "";
   state.lastExport = null;
@@ -1072,6 +1111,7 @@ function normalizeProject(raw) {
         marker_id: marker.id,
         frame: marker.frame,
         category: marker.category,
+        label: marker.label || "",
         note: marker.note || ""
       })),
       clips: [],
@@ -1395,6 +1435,13 @@ function drawAnglePreviewFrames(timestamp = performance.now(), options = {}) {
       continue;
     }
     try {
+      const drawWidth = Math.min(480, source.videoWidth);
+      const drawHeight = Math.max(1, Math.round(drawWidth * source.videoHeight / source.videoWidth));
+      if (preview.canvas.width !== drawWidth || preview.canvas.height !== drawHeight) {
+        preview.canvas.width = drawWidth;
+        preview.canvas.height = drawHeight;
+        preview.canvas.style.aspectRatio = `${source.videoWidth} / ${source.videoHeight}`;
+      }
       preview.context.drawImage(source, 0, 0, preview.canvas.width, preview.canvas.height);
       preview.lastDrawnMediaTime = Number(source.currentTime) || 0;
       preview.canvas.dataset.mediaTime = String(preview.lastDrawnMediaTime);
@@ -1663,6 +1710,7 @@ function createAnglePreviewTile(angle, options = {}) {
   }
   tile.disabled = !proxyAvailable(angle);
   tile.addEventListener("click", event => handleAnglePreviewTap(event, angle.id));
+  tile.addEventListener("contextmenu", event => openAngleContextMenu(event, angle.id));
   if (options.showVideo && proxyAvailable(angle)) {
     const canvas = document.createElement("canvas");
     canvas.className = "angle-preview-canvas";
@@ -1935,7 +1983,7 @@ function renderDecisionListInto(list, options = {}) {
     button.querySelector("span").textContent = name;
     button.addEventListener("click", event => handleDecisionTap(event, decision.frame));
     button.addEventListener("pointerdown", event => startDecisionLongPress(event, decision.frame));
-    button.addEventListener("contextmenu", event => event.preventDefault());
+    button.addEventListener("contextmenu", event => openDecisionContextMenu(event, decision.frame));
     li.appendChild(button);
     list.appendChild(li);
   }
@@ -2285,17 +2333,23 @@ function renderMarkerListInto(list) {
     li.dataset.markerId = marker.id;
     li.dataset.frame = String(marker.frame);
     li.style.setProperty("--marker-color", marker.color || category.color);
+    li.classList.toggle("selected", state.selectedMarkerId === marker.id);
     li.classList.toggle("multi-selected", state.selectedMarkerIds.has(marker.id));
     const button = document.createElement("button");
     button.type = "button";
     button.className = "marker-button";
     button.innerHTML = "<strong></strong><span class=\"marker-category-label\"></span><span class=\"marker-note-label\"></span>";
     button.querySelector("strong").textContent = framesToTimecode(marker.frame, state.project.fps);
-    button.querySelector(".marker-category-label").textContent = category.label;
-    button.querySelector(".marker-note-label").textContent = marker.note || marker.label || "No text";
+    button.querySelector(".marker-category-label").textContent = marker.label || category.label;
+    button.querySelector(".marker-note-label").textContent = marker.note || category.label;
+    button.title = `${category.label}: ${marker.label || category.label}${marker.note ? ` — ${marker.note}` : ""}`;
     button.addEventListener("click", event => handleMarkerTap(event, marker.id));
+    button.addEventListener("dblclick", event => {
+      event.preventDefault();
+      editMarker(marker.id);
+    });
     button.addEventListener("pointerdown", event => startMarkerLongPress(event, marker.id));
-    button.addEventListener("contextmenu", event => event.preventDefault());
+    button.addEventListener("contextmenu", event => openMarkerContextMenu(event, marker.id));
     li.appendChild(button);
     list.appendChild(li);
   }
@@ -2308,6 +2362,7 @@ function renderMarkerSelectionMenu() {
   elements.markerSelectionSummary.textContent = visible
     ? `${count} note${count === 1 ? "" : "s"} selected`
     : "No notes selected";
+  elements.editSelectedMarkerButton.disabled = count !== 1;
   elements.deleteSelectedMarkersButton.disabled = !visible;
 }
 
@@ -2337,9 +2392,13 @@ function handleMarkerTap(event, markerId) {
   if (!marker) {
     return;
   }
+  state.selectedMarkerId = markerId;
+  state.selectedClipId = null;
+  state.focusedEditType = "marker";
   pausePlayback({ silent: true });
   setTimelineFrame(marker.frame, { syncVideos: true, persist: true });
-  setStatus(`${markerCategoryById(marker.category).label} at ${framesToTimecode((state.project.timelineStartFrame || 0) + marker.frame, state.project.fps)}.`);
+  renderMarkerList();
+  setStatus(`${marker.label || markerCategoryById(marker.category).label} at ${framesToTimecode((state.project.timelineStartFrame || 0) + marker.frame, state.project.fps)}.`);
 }
 
 function startMarkerLongPress(event, markerId) {
@@ -2402,6 +2461,8 @@ function enterMarkerSelection(markerId) {
   exitDecisionSelection();
   clearClipSelectionState();
   state.markerSelectionMode = true;
+  state.selectedMarkerId = markerId;
+  state.focusedEditType = "marker";
   state.selectedMarkerIds.add(markerId);
   renderAll();
   setStatus("Note selection mode. Tap more notes to select or deselect them.");
@@ -2437,10 +2498,17 @@ function clearMarkerSelectionState() {
 
 function deleteSelectedMarkers() {
   const selected = new Set(state.selectedMarkerIds);
-  const removedCount = state.markers.filter(marker => selected.has(marker.id)).length;
+  const removed = state.markers.filter(marker => selected.has(marker.id));
+  const removedCount = removed.length;
+  if (!removedCount) {
+    exitMarkerSelection({ status: "Note selection cleared." });
+    return;
+  }
+  pushMarkerHistory({ before: removed, after: [], label: removedCount === 1 ? "marker deletion" : "marker deletion batch" });
   state.markers = state.markers.filter(marker => !selected.has(marker.id));
   state.markerSelectionMode = false;
   state.selectedMarkerIds.clear();
+  state.selectedMarkerId = null;
   state.suppressMarkerClickId = null;
   renderAll();
   scheduleProjectStateAutosave();
@@ -2661,6 +2729,9 @@ function recordDecision(angleId, options = {}) {
   state.decisions.push(nextDecision);
   state.decisions.sort((a, b) => a.frame - b.frame);
   state.selectedDecisionFrame = frame;
+  state.selectedMarkerId = null;
+  state.selectedClipId = null;
+  state.focusedEditType = "decision";
   if (!options.skipAutosave) {
     scheduleProjectStateAutosave();
   }
@@ -2668,9 +2739,52 @@ function recordDecision(angleId, options = {}) {
 
 function pushDecisionHistory(action) {
   state.undoStack.push({
+    kind: "decision",
     before: (action.before || []).map(cloneDecision),
     after: (action.after || []).map(cloneDecision),
     label: action.label || "camera decision edit"
+  });
+  state.redoStack = [];
+}
+
+function cloneMarker(marker) {
+  return {
+    id: marker.id,
+    frame: marker.frame,
+    category: marker.category,
+    label: marker.label,
+    color: marker.color,
+    note: marker.note,
+    createdAt: marker.createdAt,
+    source: marker.source
+  };
+}
+
+function cloneClip(clip) {
+  return {
+    id: clip.id,
+    inFrame: clip.inFrame,
+    outFrame: clip.outFrame,
+    createdAt: clip.createdAt
+  };
+}
+
+function pushMarkerHistory(action) {
+  state.undoStack.push({
+    kind: "marker",
+    before: (action.before || []).map(cloneMarker),
+    after: (action.after || []).map(cloneMarker),
+    label: action.label || "marker edit"
+  });
+  state.redoStack = [];
+}
+
+function pushClipHistory(action) {
+  state.undoStack.push({
+    kind: "clip",
+    before: (action.before || []).map(cloneClip),
+    after: (action.after || []).map(cloneClip),
+    label: action.label || "clip edit"
   });
   state.redoStack = [];
 }
@@ -2703,13 +2817,44 @@ function applyDecisionHistory(action, direction) {
   state.selectedDecisionFrame = selected?.frame ?? 0;
 }
 
-function finishDecisionHistoryChange(status) {
-  const active = activeDecisionAtFrame(state.timelineFrame);
-  if (active) {
-    state.activeAngleId = active.angleId;
-    showActiveProgramAngle();
+function applyReviewHistory(action, direction) {
+  if (!action.kind || action.kind === "decision") {
+    applyDecisionHistory(action, direction);
+    return;
   }
-  renderDecisionEditState();
+  const removeRows = direction === "undo" ? action.after : action.before;
+  const addRows = direction === "undo" ? action.before : action.after;
+  if (action.kind === "marker") {
+    const changedIds = new Set([...removeRows, ...addRows].map(marker => marker.id));
+    state.markers = state.markers.filter(marker => !changedIds.has(marker.id));
+    state.markers.push(...addRows.map(cloneMarker));
+    state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+    state.selectedMarkerId = addRows[0]?.id || null;
+    state.focusedEditType = "marker";
+    return;
+  }
+  if (action.kind === "clip") {
+    const changedIds = new Set([...removeRows, ...addRows].map(clip => clip.id));
+    state.clips = state.clips.filter(clip => !changedIds.has(clip.id));
+    state.clips.push(...addRows.map(cloneClip));
+    state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+    state.selectedClipId = addRows[0]?.id || null;
+    state.focusedEditType = "clip";
+  }
+}
+
+function finishDecisionHistoryChange(status, action = {}) {
+  clearDecisionSelectionState();
+  clearMarkerSelectionState();
+  clearClipSelectionState();
+  if (!action.kind || action.kind === "decision") {
+    const active = activeDecisionAtFrame(state.timelineFrame);
+    if (active) {
+      state.activeAngleId = active.angleId;
+      showActiveProgramAngle();
+    }
+  }
+  renderAll();
   scheduleProjectStateAutosave();
   setStatus(status);
 }
@@ -2748,9 +2893,9 @@ function undoDecision() {
   }
   clearDecisionSelectionState();
   const action = state.undoStack.pop();
-  applyDecisionHistory(action, "undo");
+  applyReviewHistory(action, "undo");
   state.redoStack.push(action);
-  finishDecisionHistoryChange(`Undid ${action.label}.`);
+  finishDecisionHistoryChange(`Undid ${action.label}.`, action);
 }
 
 function redoDecision() {
@@ -2759,9 +2904,9 @@ function redoDecision() {
   }
   clearDecisionSelectionState();
   const action = state.redoStack.pop();
-  applyDecisionHistory(action, "redo");
+  applyReviewHistory(action, "redo");
   state.undoStack.push(action);
-  finishDecisionHistoryChange(`Redid ${action.label}.`);
+  finishDecisionHistoryChange(`Redid ${action.label}.`, action);
 }
 
 function handleDecisionTap(event, frame) {
@@ -2937,6 +3082,9 @@ function selectDecision(frame, options = {}) {
     return;
   }
   state.selectedDecisionFrame = decision.frame;
+  state.selectedMarkerId = null;
+  state.selectedClipId = null;
+  state.focusedEditType = "decision";
   if (options.seek) {
     pausePlayback({ silent: true });
     setTimelineFrame(decision.frame, { syncVideos: true, persist: true });
@@ -3396,29 +3544,50 @@ function removeCurrentCameraCut() {
   return true;
 }
 
-function openPreviewActionMenu(frame) {
+function openPreviewActionMenu(frame, options = {}) {
   pausePlayback({ silent: true });
   exitDecisionSelection();
   if (state.markerSelectionMode) {
     state.markerSelectionMode = false;
     state.selectedMarkerIds.clear();
   }
+  const marker = options.markerId
+    ? state.markers.find(item => item.id === options.markerId)
+    : null;
   const targetFrame = clampFrame(frame);
   state.previewActionFrame = targetFrame;
-  state.selectedMarkerCategory = "note";
-  elements.previewActionSummary.textContent = `Note at ${framesToTimecode((state.project.timelineStartFrame || 0) + targetFrame, state.project.fps)}`;
-  elements.markerNoteInput.value = "";
+  state.previewActionMarkerId = marker?.id || null;
+  state.selectedMarkerCategory = marker?.category || "note";
+  elements.previewActionSummary.textContent = `${marker ? "Edit marker" : "Add marker"} at ${framesToTimecode((state.project.timelineStartFrame || 0) + targetFrame, state.project.fps)}`;
+  elements.markerTitleInput.value = marker?.label || "";
+  elements.markerNoteInput.value = marker?.note || "";
+  elements.saveMarkerButton.textContent = marker ? "Save Marker" : "Add Marker";
   renderMarkerCategoryButtons();
   elements.previewActionMenu.classList.remove("hidden");
-  elements.markerNoteInput.focus();
-  setStatus("Add a note for this moment, then save the marker.");
+  elements.markerTitleInput.focus();
+  elements.markerTitleInput.select();
+  setStatus(marker ? "Edit the marker name, category, or details, then save." : "Name this marker in your own words, then save it.");
+}
+
+function editMarker(markerId) {
+  const marker = state.markers.find(item => item.id === markerId);
+  if (!marker) {
+    return;
+  }
+  state.selectedMarkerId = markerId;
+  state.focusedEditType = "marker";
+  setTimelineFrame(marker.frame, { syncVideos: true, persist: true });
+  openPreviewActionMenu(marker.frame, { markerId });
 }
 
 function closePreviewActionMenu(options = {}) {
   state.previewActionFrame = null;
+  state.previewActionMarkerId = null;
   state.selectedMarkerCategory = "note";
   elements.previewActionMenu.classList.add("hidden");
+  elements.markerTitleInput.value = "";
   elements.markerNoteInput.value = "";
+  elements.saveMarkerButton.textContent = "Add Marker";
   if (options.status) {
     setStatus(options.status);
   }
@@ -3430,28 +3599,66 @@ function savePreviewMarker() {
     return;
   }
   const frame = clampFrame(state.previewActionFrame);
+  const title = elements.markerTitleInput.value.trim();
   const note = elements.markerNoteInput.value.trim();
   const category = markerCategoryById(state.selectedMarkerCategory);
-  addReviewMarker(frame, category, note, "peco_mobile_review");
+  const existing = state.previewActionMarkerId
+    ? state.markers.find(marker => marker.id === state.previewActionMarkerId)
+    : null;
+  if (existing) {
+    const before = cloneMarker(existing);
+    existing.frame = frame;
+    existing.category = category.id;
+    existing.label = title || category.label;
+    existing.color = category.color;
+    existing.note = note;
+    existing.source = "peco_mobile_review_edit";
+    const after = cloneMarker(existing);
+    pushMarkerHistory({ before: [before], after: [after], label: "marker edit" });
+    state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+    state.selectedMarkerId = existing.id;
+    state.focusedEditType = "marker";
+  } else {
+    const marker = addReviewMarker(frame, category, note, "peco_mobile_review", title);
+    state.selectedMarkerId = marker.id;
+    state.focusedEditType = "marker";
+  }
   closePreviewActionMenu();
-  setStatus(`Saved ${category.label} note at ${framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps)}.`);
+  scheduleProjectStateAutosave();
+  renderMarkerList();
+  setStatus(`Saved ${title || category.label} at ${framesToTimecode((state.project.timelineStartFrame || 0) + frame, state.project.fps)}.`);
 }
 
-function addReviewMarker(frame, category, note = "", source = "peco_mobile_review") {
-  state.markers.push({
+function addReviewMarker(frame, category, note = "", source = "peco_mobile_review", label = "") {
+  const marker = {
     id: `marker_${cryptoRandomId()}`,
     frame: clampFrame(frame),
     category: category.id,
-    label: category.label,
+    label: String(label || "").trim() || category.label,
     color: category.color,
     note: String(note || "").trim(),
     createdAt: new Date().toISOString(),
     source
-  });
+  };
+  pushMarkerHistory({ before: [], after: [marker], label: "marker addition" });
+  state.markers.push(marker);
   state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
   scheduleProjectStateAutosave();
   renderMarkerList();
   renderQuickNotePalette();
+  return marker;
+}
+
+function handleMarkerEditorKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    event.preventDefault();
+    savePreviewMarker();
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closePreviewActionMenu({ status: "Marker edit canceled." });
+  }
 }
 
 function handleViewerTap(event) {
@@ -3920,8 +4127,381 @@ function monitorPlaybackPerformance() {
   setStatus(`PECO detected dropped frames and changed Auto playback to ${PERFORMANCE_PROFILES[nextMode].label}.`);
 }
 
+function openShortcutMenu() {
+  closeContextMenu();
+  elements.shortcutMenu.classList.remove("hidden");
+  elements.closeShortcutMenuButton.focus();
+}
+
+function closeShortcutMenu() {
+  elements.shortcutMenu.classList.add("hidden");
+}
+
+function closeContextMenu() {
+  elements.contextMenu.classList.add("hidden");
+  elements.contextMenuActions.innerHTML = "";
+  state.contextMenuTarget = null;
+}
+
+function openContextMenu(event, options = {}) {
+  event.preventDefault();
+  event.stopPropagation();
+  closeContextMenu();
+  state.contextMenuTarget = options.target || null;
+  elements.contextMenuTitle.textContent = options.title || "Actions";
+  elements.contextMenuDetail.textContent = options.detail || "";
+  for (const action of options.actions || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.role = "menuitem";
+    button.textContent = action.label;
+    button.disabled = Boolean(action.disabled);
+    button.className = action.danger ? "context-danger" : "";
+    button.addEventListener("click", () => {
+      closeContextMenu();
+      action.handler?.();
+    });
+    elements.contextMenuActions.appendChild(button);
+  }
+  elements.contextMenu.style.left = "0px";
+  elements.contextMenu.style.top = "0px";
+  elements.contextMenu.classList.remove("hidden");
+  const bounds = elements.contextMenu.getBoundingClientRect();
+  const left = Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8));
+  const top = Math.max(8, Math.min(event.clientY, window.innerHeight - bounds.height - 8));
+  elements.contextMenu.style.left = `${left}px`;
+  elements.contextMenu.style.top = `${top}px`;
+  elements.contextMenu.querySelector("button:not(:disabled)")?.focus();
+}
+
+async function copyContextDetails(text) {
+  try {
+    await navigator.clipboard?.writeText?.(String(text || ""));
+    setStatus("Copied item details.");
+  } catch (error) {
+    setStatus(`Could not copy details: ${error.message}`, true);
+  }
+}
+
+function openAngleContextMenu(event, angleId) {
+  const angle = angleById(angleId);
+  if (!angle) {
+    return;
+  }
+  state.focusedEditType = "angle";
+  const detail = `Camera ${angle.index} • ${angle.originalSourceFilename || angle.proxyFilename || "Proxy"}`;
+  openContextMenu(event, {
+    target: { type: "angle", angleId },
+    title: angle.name,
+    detail,
+    actions: [
+      { label: `Cut to Camera ${angle.index}`, disabled: angle.id === state.activeAngleId, handler: () => switchAngle(angle.id) },
+      { label: "Copy Camera Details", handler: () => copyContextDetails(`${angle.name}\n${detail}`) }
+    ]
+  });
+}
+
+function openDecisionContextMenu(event, frame) {
+  const decision = compactDecisions().find(item => item.frame === frame);
+  if (!decision) {
+    return;
+  }
+  state.selectedDecisionFrame = frame;
+  state.selectedMarkerId = null;
+  state.selectedClipId = null;
+  state.focusedEditType = "decision";
+  renderDecisionList();
+  const angle = angleById(decision.angleId);
+  const timecode = framesToTimecode((state.project.timelineStartFrame || 0) + decision.frame, state.project.fps);
+  const detail = `${timecode} • ${angle?.name || decision.cameraName || decision.angleId}`;
+  openContextMenu(event, {
+    target: { type: "decision", frame },
+    title: "Camera Cut",
+    detail,
+    actions: [
+      { label: "Go to Cut", handler: () => selectDecision(frame, { seek: true }) },
+      {
+        label: `Use ${activeAngle()?.name || "Current Camera"}`,
+        disabled: decision.angleId === state.activeAngleId,
+        handler: () => changeDecisionAngle(frame, state.activeAngleId)
+      },
+      {
+        label: "Move Cut to Playhead",
+        disabled: frame === 0 || state.timelineFrame === 0 || state.timelineFrame === frame,
+        handler: () => moveDecisionToPlayhead(frame)
+      },
+      { label: "Copy Cut Details", handler: () => copyContextDetails(detail) },
+      { label: "Delete Cut", danger: true, disabled: frame === 0, handler: () => deleteDecisionFrame(frame) }
+    ]
+  });
+}
+
+function changeDecisionAngle(frame, angleId) {
+  const current = state.decisions.find(decision => decision.frame === frame);
+  const angle = angleById(angleId);
+  if (!current || !angle || current.angleId === angle.id) {
+    return;
+  }
+  const next = {
+    ...cloneDecision(current),
+    angleId: angle.id,
+    angleIndex: angle.index,
+    cameraName: angle.name,
+    recordedAt: new Date().toISOString()
+  };
+  pushDecisionHistory({ before: [current], after: [next], label: "camera cut change" });
+  state.decisions = state.decisions.filter(decision => decision.frame !== frame);
+  state.decisions.push(next);
+  state.decisions.sort((a, b) => a.frame - b.frame);
+  state.selectedDecisionFrame = frame;
+  const active = activeDecisionAtFrame(state.timelineFrame);
+  if (active) {
+    state.activeAngleId = active.angleId;
+    showActiveProgramAngle();
+  }
+  scheduleProjectStateAutosave();
+  renderAll();
+  setStatus(`Changed cut at ${framesToTimecode(frame, state.project.fps)} to ${angle.name}.`);
+}
+
+function moveDecisionToPlayhead(frame) {
+  const targetFrame = clampFrame(state.timelineFrame);
+  const current = state.decisions.find(decision => decision.frame === frame);
+  if (!current || frame === 0 || targetFrame === 0 || targetFrame === frame) {
+    setStatus("The starting cut cannot be moved, and cuts cannot replace frame 0.", true);
+    return;
+  }
+  const replaced = state.decisions.find(decision => decision.frame === targetFrame);
+  const before = [current, replaced].filter((decision, index, rows) => decision && rows.indexOf(decision) === index);
+  const moved = { ...cloneDecision(current), frame: targetFrame, recordedAt: new Date().toISOString() };
+  pushDecisionHistory({ before, after: [moved], label: "camera cut move" });
+  state.decisions = state.decisions.filter(decision => decision.frame !== frame && decision.frame !== targetFrame);
+  state.decisions.push(moved);
+  state.decisions.sort((a, b) => a.frame - b.frame);
+  state.selectedDecisionFrame = targetFrame;
+  scheduleProjectStateAutosave();
+  renderAll();
+  setStatus(`Moved camera cut to ${framesToTimecode(targetFrame, state.project.fps)}.`);
+}
+
+function deleteDecisionFrame(frame) {
+  if (!canSelectDecisionForDelete(frame)) {
+    setStatus("The starting camera at frame 0 stays fixed.", true);
+    return;
+  }
+  state.selectedDecisionFrames.clear();
+  state.selectedDecisionFrames.add(frame);
+  state.decisionSelectionMode = true;
+  deleteSelectedDecisionFrames();
+}
+
+function openMarkerContextMenu(event, markerId) {
+  const marker = state.markers.find(item => item.id === markerId);
+  if (!marker) {
+    return;
+  }
+  state.selectedMarkerId = markerId;
+  state.selectedClipId = null;
+  state.focusedEditType = "marker";
+  renderMarkerList();
+  const category = markerCategoryById(marker.category);
+  const timecode = framesToTimecode((state.project.timelineStartFrame || 0) + marker.frame, state.project.fps);
+  const detail = `${timecode} • ${category.label}${marker.note ? ` • ${marker.note}` : ""}`;
+  openContextMenu(event, {
+    target: { type: "marker", markerId },
+    title: marker.label || category.label,
+    detail,
+    actions: [
+      { label: "Go to Marker", handler: () => handleMarkerTap({ preventDefault() {} }, markerId) },
+      { label: "Edit Marker", handler: () => editMarker(markerId) },
+      { label: "Move Marker to Playhead", disabled: marker.frame === state.timelineFrame, handler: () => moveMarkerToPlayhead(markerId) },
+      { label: "Copy Marker Details", handler: () => copyContextDetails(`${marker.label || category.label}\n${detail}`) },
+      { label: "Delete Marker", danger: true, handler: () => deleteMarkerById(markerId) }
+    ]
+  });
+}
+
+function moveMarkerToPlayhead(markerId) {
+  const marker = state.markers.find(item => item.id === markerId);
+  if (!marker) {
+    return;
+  }
+  const before = cloneMarker(marker);
+  marker.frame = clampFrame(state.timelineFrame);
+  const after = cloneMarker(marker);
+  pushMarkerHistory({ before: [before], after: [after], label: "marker move" });
+  state.markers.sort((a, b) => a.frame - b.frame || a.id.localeCompare(b.id));
+  scheduleProjectStateAutosave();
+  renderMarkerList();
+  setStatus(`Moved ${marker.label || "marker"} to ${framesToTimecode(marker.frame, state.project.fps)}.`);
+}
+
+function deleteMarkerById(markerId) {
+  if (!state.markers.some(marker => marker.id === markerId)) {
+    return;
+  }
+  state.selectedMarkerIds.clear();
+  state.selectedMarkerIds.add(markerId);
+  state.markerSelectionMode = true;
+  deleteSelectedMarkers();
+}
+
+function openClipContextMenu(event, clipId) {
+  const clip = state.clips.find(item => item.id === clipId);
+  if (!clip) {
+    return;
+  }
+  state.selectedClipId = clipId;
+  state.selectedMarkerId = null;
+  state.focusedEditType = "clip";
+  renderClipList();
+  const detail = `${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)} • ${formatClipDuration((clip.outFrame - clip.inFrame) / state.project.fps)}`;
+  openContextMenu(event, {
+    target: { type: "clip", clipId },
+    title: "Saved Clip",
+    detail,
+    actions: [
+      { label: "Go to Clip IN", handler: () => handleClipTap({ preventDefault() {} }, clipId) },
+      { label: "Set IN to Playhead", disabled: state.timelineFrame >= clip.outFrame, handler: () => setClipBoundaryAtPlayhead(clipId, "in") },
+      { label: "Set OUT to Playhead", disabled: state.timelineFrame <= clip.inFrame, handler: () => setClipBoundaryAtPlayhead(clipId, "out") },
+      { label: "Render This Clip", handler: () => renderSingleClip(clipId) },
+      { label: "Copy Clip Details", handler: () => copyContextDetails(detail) },
+      { label: "Delete Clip", danger: true, handler: () => deleteClipById(clipId) }
+    ]
+  });
+}
+
+function setClipBoundaryAtPlayhead(clipId, side) {
+  const clip = state.clips.find(item => item.id === clipId);
+  if (!clip) {
+    return;
+  }
+  const targetFrame = clampFrame(state.timelineFrame);
+  if ((side === "in" && targetFrame >= clip.outFrame) || (side === "out" && targetFrame <= clip.inFrame)) {
+    setStatus("Clip OUT must stay after clip IN.", true);
+    return;
+  }
+  const before = cloneClip(clip);
+  if (side === "in") {
+    clip.inFrame = targetFrame;
+  } else {
+    clip.outFrame = targetFrame;
+  }
+  const after = cloneClip(clip);
+  pushClipHistory({ before: [before], after: [after], label: `clip ${side.toUpperCase()} edit` });
+  state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+  scheduleProjectStateAutosave();
+  renderClipList();
+  setStatus(`Set clip ${side.toUpperCase()} to ${clipFrameTimecode(targetFrame)}.`);
+}
+
+function renderSingleClip(clipId) {
+  if (!state.clips.some(clip => clip.id === clipId)) {
+    return;
+  }
+  clearClipSelectionState();
+  state.clipSelectionMode = true;
+  state.selectedClipIds.add(clipId);
+  state.selectedClipId = clipId;
+  openRenderMenu("reel");
+}
+
+function deleteClipById(clipId) {
+  if (!state.clips.some(clip => clip.id === clipId)) {
+    return;
+  }
+  state.selectedClipIds.clear();
+  state.selectedClipIds.add(clipId);
+  state.clipSelectionMode = true;
+  deleteSelectedClips();
+}
+
+function deleteFocusedReviewItem() {
+  if (state.decisionSelectionMode && state.selectedDecisionFrames.size) {
+    deleteSelectedDecisionFrames();
+    return true;
+  }
+  if (state.markerSelectionMode && state.selectedMarkerIds.size) {
+    deleteSelectedMarkers();
+    return true;
+  }
+  if (state.clipSelectionMode && state.selectedClipIds.size) {
+    deleteSelectedClips();
+    return true;
+  }
+  if (state.focusedEditType === "marker" && state.selectedMarkerId) {
+    deleteMarkerById(state.selectedMarkerId);
+    return true;
+  }
+  if (state.focusedEditType === "clip" && state.selectedClipId) {
+    deleteClipById(state.selectedClipId);
+    return true;
+  }
+  if (state.focusedEditType === "decision" && Number(state.selectedDecisionFrame) > 0) {
+    deleteDecisionFrame(state.selectedDecisionFrame);
+    return true;
+  }
+  setStatus("Select a camera cut, marker, or clip before deleting.", true);
+  return false;
+}
+
+function editFocusedMarker() {
+  const marker = state.markers.find(item => item.id === state.selectedMarkerId)
+    || activeMarkerAtFrame(state.timelineFrame);
+  if (!marker) {
+    setStatus("There is no marker to edit at this position.", true);
+    return;
+  }
+  editMarker(marker.id);
+}
+
+function closeActiveOverlay() {
+  if (!elements.contextMenu.classList.contains("hidden")) {
+    closeContextMenu();
+    return true;
+  }
+  if (!elements.shortcutMenu.classList.contains("hidden")) {
+    closeShortcutMenu();
+    return true;
+  }
+  if (!elements.previewActionMenu.classList.contains("hidden")) {
+    closePreviewActionMenu({ status: "Marker edit canceled." });
+    return true;
+  }
+  if (state.decisionSelectionMode) {
+    exitDecisionSelection({ status: "Selection cleared." });
+    return true;
+  }
+  if (state.markerSelectionMode) {
+    exitMarkerSelection({ status: "Note selection cleared." });
+    return true;
+  }
+  if (state.clipSelectionMode) {
+    exitClipSelection({ status: "Clip selection cleared." });
+    return true;
+  }
+  return false;
+}
+
+function isTextEntryTarget(target) {
+  return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
+}
+
 function handleKeydown(event) {
-  if (!isReady() || event.target.matches("input, textarea")) {
+  if (event.key === "Escape" && closeActiveOverlay()) {
+    event.preventDefault();
+    return;
+  }
+  if (isTextEntryTarget(event.target)) {
+    return;
+  }
+  const unmodifiedShortcut = !event.altKey && !event.ctrlKey && !event.metaKey;
+  if ((event.key === "?" || (event.code === "Slash" && event.shiftKey)) && !event.repeat) {
+    event.preventDefault();
+    openShortcutMenu();
+    return;
+  }
+  if (!isReady()) {
     return;
   }
   const historyShortcut = !event.altKey && (event.ctrlKey || event.metaKey) && event.code === "KeyZ";
@@ -3958,7 +4538,58 @@ function handleKeydown(event) {
     stepFrames(event.shiftKey ? 10 : 1);
     return;
   }
-  const unmodifiedShortcut = !event.altKey && !event.ctrlKey && !event.metaKey;
+  if (unmodifiedShortcut && !event.repeat && (event.key === "Delete" || event.key === "Backspace")) {
+    event.preventDefault();
+    deleteFocusedReviewItem();
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.code === "KeyM") {
+    event.preventDefault();
+    if (event.shiftKey) {
+      editFocusedMarker();
+    } else {
+      openPreviewActionMenu(state.timelineFrame);
+    }
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.code === "KeyJ") {
+    event.preventDefault();
+    startShuttle(-JOG_SHUTTLE_SPEEDS[0]);
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.code === "KeyK") {
+    event.preventDefault();
+    stopShuttle();
+    pausePlayback({ silent: true });
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.code === "KeyL") {
+    event.preventDefault();
+    startShuttle(JOG_SHUTTLE_SPEEDS[0]);
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.key === "Home") {
+    event.preventDefault();
+    pausePlayback({ silent: true });
+    setTimelineFrame(0, { syncVideos: true, persist: true });
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.key === "End") {
+    event.preventDefault();
+    pausePlayback({ silent: true });
+    setTimelineFrame(maxFrame(), { syncVideos: true, persist: true });
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.key === "ArrowUp") {
+    event.preventDefault();
+    selectAdjacentDecision(-1);
+    return;
+  }
+  if (unmodifiedShortcut && !event.repeat && event.key === "ArrowDown") {
+    event.preventDefault();
+    selectAdjacentDecision(1);
+    return;
+  }
   if (unmodifiedShortcut && !event.repeat && event.code === "KeyI") {
     event.preventDefault();
     openRenderMenu("range");
@@ -4018,6 +4649,7 @@ function toggleClipCapture() {
     outFrame,
     createdAt: new Date().toISOString()
   };
+  pushClipHistory({ before: [], after: [clip], label: "clip addition" });
   state.clips.push(clip);
   state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
   state.clipCaptureInFrame = null;
@@ -4058,6 +4690,7 @@ function renderClipList() {
     const item = document.createElement("li");
     item.dataset.clipId = clip.id;
     item.classList.toggle("current", clip.id === active?.id);
+    item.classList.toggle("selected", state.selectedClipId === clip.id);
     item.classList.toggle("multi-selected", state.selectedClipIds.has(clip.id));
     const button = document.createElement("button");
     button.type = "button";
@@ -4068,7 +4701,7 @@ function renderClipList() {
     button.querySelector("em").textContent = formatClipDuration((clip.outFrame - clip.inFrame) / state.project.fps);
     button.addEventListener("click", event => handleClipTap(event, clip.id));
     button.addEventListener("pointerdown", event => startClipLongPress(event, clip.id));
-    button.addEventListener("contextmenu", event => event.preventDefault());
+    button.addEventListener("contextmenu", event => openClipContextMenu(event, clip.id));
     item.appendChild(button);
     elements.clipList.appendChild(item);
   });
@@ -4097,8 +4730,12 @@ function handleClipTap(event, clipId) {
   if (!clip) {
     return;
   }
+  state.selectedClipId = clipId;
+  state.selectedMarkerId = null;
+  state.focusedEditType = "clip";
   pausePlayback({ silent: true });
   setTimelineFrame(clip.inFrame, { syncVideos: true, persist: true });
+  renderClipList();
   setStatus(`Clip ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
 }
 
@@ -4162,6 +4799,8 @@ function enterClipSelection(clipId) {
   clearDecisionSelectionState();
   clearMarkerSelectionState();
   state.clipSelectionMode = true;
+  state.selectedClipId = clipId;
+  state.focusedEditType = "clip";
   state.selectedClipIds.add(clipId);
   renderAll();
   setStatus("Clip selection mode. Tap more clips to include or remove them.");
@@ -4197,10 +4836,17 @@ function clearClipSelectionState() {
 
 function deleteSelectedClips() {
   const selected = new Set(state.selectedClipIds);
-  const removedCount = state.clips.filter(clip => selected.has(clip.id)).length;
+  const removed = state.clips.filter(clip => selected.has(clip.id));
+  const removedCount = removed.length;
+  if (!removedCount) {
+    exitClipSelection({ status: "Clip selection cleared." });
+    return;
+  }
+  pushClipHistory({ before: removed, after: [], label: removedCount === 1 ? "clip deletion" : "clip deletion batch" });
   state.clips = state.clips.filter(clip => !selected.has(clip.id));
   state.clipSelectionMode = false;
   state.selectedClipIds.clear();
+  state.selectedClipId = null;
   state.suppressClipClickId = null;
   scheduleProjectStateAutosave();
   renderAll();
@@ -5641,6 +6287,7 @@ function reviewContentSnapshot() {
       marker_id: marker.id,
       frame: marker.frame,
       category: marker.category,
+      label: marker.label || "",
       note: marker.note || ""
     })),
     clips: state.clips.map(clip => ({

@@ -2061,6 +2061,667 @@ body.clip-rendering .control-deck > * {
 }
 
 @media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
+  .mobile-options-row {
+    display: flex;
+    min-width: 0;
+    min-height: 34px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .mobile-options-row > .mobile-option {
+    flex: 0 0 auto;
+    min-width: 58px;
+    min-height: 34px;
+    padding-inline: 6px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 761px) and (pointer: coarse) and (min-height: 561px) {
+  .top-actions button,
+  .reviewer-input,
+  .play,
+  #mobileUndoDecisionButton,
+  #mobileRedoDecisionButton,
+  #usePreviousAngleButton {
+    min-height: 38px;
+    height: 38px;
+    font-size: 12px;
+  }
+}
+
+/* Professional desktop review workspace and contextual editing surfaces. */
+.toolbar-group {
+  min-width: 0;
+}
+
+.marker-editor-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.marker-editor-field span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.marker-editor-field em {
+  color: #777c73;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.marker-editor-field input,
+.marker-editor-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: #111410;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.marker-editor-field input {
+  min-height: 36px;
+  padding: 0 9px;
+}
+
+.marker-editor-field textarea {
+  min-height: 70px;
+  padding: 8px 9px;
+  resize: vertical;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 40;
+  width: min(260px, calc(100vw - 16px));
+  max-height: min(520px, calc(100dvh - 16px));
+  overflow: auto;
+  border: 1px solid #4a5047;
+  border-radius: 6px;
+  color: var(--text);
+  background: #171a17;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.62);
+}
+
+.context-menu.hidden,
+.shortcut-menu.hidden {
+  display: none;
+}
+
+.context-menu-head {
+  padding: 9px 10px 8px;
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px solid #343a33;
+  background: #202420;
+}
+
+.context-menu-head strong {
+  font-size: 12px;
+}
+
+.context-menu-head span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.context-menu-actions {
+  padding: 4px;
+  display: grid;
+  gap: 1px;
+}
+
+.context-menu-actions button {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  color: #e7e9e4;
+  background: transparent;
+  font-size: 11px;
+  text-align: left;
+}
+
+.context-menu-actions button:not(:disabled):hover,
+.context-menu-actions button:not(:disabled):focus-visible {
+  outline: none;
+  background: #313831;
+}
+
+.context-menu-actions .context-danger {
+  color: #ffb4a8;
+}
+
+.shortcut-menu {
+  position: fixed;
+  z-index: 35;
+  left: 50%;
+  top: 50%;
+  width: min(760px, calc(100vw - 28px));
+  max-height: calc(100dvh - 28px);
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid #4a5047;
+  border-radius: 8px;
+  color: var(--text);
+  background: #171a17;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.7);
+  transform: translate(-50%, -50%);
+}
+
+.shortcut-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shortcut-grid section {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #343a33;
+  border-radius: 6px;
+  background: #111410;
+}
+
+.shortcut-grid h3 {
+  margin: 0 0 7px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shortcut-grid section > div {
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid #252a24;
+  color: #c4c7c0;
+  font-size: 11px;
+}
+
+.shortcut-grid kbd {
+  display: inline-block;
+  min-width: 24px;
+  padding: 2px 5px;
+  border: 1px solid #50574d;
+  border-bottom-color: #737b6f;
+  border-radius: 4px;
+  color: #f2f4ee;
+  background: #272c27;
+  box-shadow: 0 1px 0 #080908;
+  font: 600 10px/1.2 "Segoe UI", sans-serif;
+  text-align: center;
+}
+
+.shortcut-footnote {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.marker-list li.selected .marker-button,
+.mobile-marker-list li.selected .marker-button,
+.mobile-clip-list li.selected .clip-range-button {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (min-width: 761px) and (min-height: 561px) {
+  body {
+    grid-template-rows: auto minmax(260px, 1fr) auto;
+    background: #0d0f0d;
+  }
+
+  button {
+    border-radius: 4px;
+  }
+
+  .topbar {
+    min-height: 44px;
+    padding: 5px 8px;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    gap: 8px;
+    background: #151815;
+  }
+
+  .brand {
+    font-size: 14px;
+    letter-spacing: 0.01em;
+  }
+
+  .project-line {
+    margin-top: 2px;
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
+  .collaboration-line {
+    margin-top: 2px;
+    font-size: 9px;
+  }
+
+  .top-actions {
+    min-width: 0;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .toolbar-group {
+    padding: 2px;
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    border: 1px solid #30352f;
+    border-radius: 5px;
+    background: #101210;
+  }
+
+  .top-actions button,
+  .reviewer-input {
+    min-height: 28px;
+    height: 28px;
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .top-actions button {
+    padding: 0 8px;
+  }
+
+  .reviewer-input {
+    width: 116px;
+    padding-inline: 7px;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) clamp(232px, 22vw, 330px);
+    background: #090b09;
+  }
+
+  .viewer-panel {
+    padding: 6px;
+  }
+
+  .viewer-frame {
+    min-height: 0;
+    border-radius: 3px;
+    box-shadow: none;
+  }
+
+  .viewer-action-buttons {
+    top: 7px;
+    right: 7px;
+    gap: 4px;
+  }
+
+  .viewer-note-button {
+    min-width: 52px;
+    min-height: 28px;
+    padding: 0 8px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+
+  .viewer-status {
+    left: 8px;
+    right: 8px;
+    bottom: 7px;
+    font-size: 11px;
+  }
+
+  .side-panel {
+    grid-template-rows: 32px minmax(0, 1fr);
+    background: #151815;
+  }
+
+  .panel-head {
+    min-height: 32px;
+    padding: 6px 8px;
+    color: #dfe2da;
+    background: #1d211d;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .angle-grid {
+    min-width: 0;
+    padding: 6px;
+    gap: 5px;
+    grid-template-rows: repeat(var(--angle-count, 1), minmax(96px, 1fr));
+    align-content: stretch;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .angle-tile {
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    padding: 4px;
+    gap: 3px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .angle-tile video,
+  .angle-tile canvas {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 2px;
+    object-fit: contain;
+  }
+
+  .angle-name {
+    min-width: 0;
+    color: #e5e7e2;
+    font-size: 11px;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .control-deck {
+    min-width: 0;
+    max-width: 100vw;
+    max-height: min(286px, 38dvh);
+    padding: 5px 7px 6px;
+    gap: 4px 6px;
+    overflow: hidden;
+    grid-template-columns: 76px minmax(168px, auto) minmax(250px, 390px);
+    grid-template-areas:
+      "transport options jog"
+      "quicknotes quicknotes quicknotes"
+      "clips clips clips"
+      "notes notes notes"
+      "decisions decisions decisions"
+      "buffer buffer buffer"
+      "status status status";
+    background: #151815;
+  }
+
+  .transport-row {
+    grid-template-columns: 76px;
+  }
+
+  .play,
+  #mobileUndoDecisionButton,
+  #mobileRedoDecisionButton,
+  #usePreviousAngleButton {
+    min-height: 30px;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  #usePreviousAngleButton {
+    min-width: 92px;
+  }
+
+  .mobile-options-row {
+    gap: 3px;
+  }
+
+  .jog-row {
+    max-width: 390px;
+    min-height: 30px;
+    grid-template-columns: 58px minmax(180px, 1fr);
+    gap: 5px;
+  }
+
+  .jog-label {
+    font-size: 9px;
+    line-height: 1.05;
+  }
+
+  .jog-wheel {
+    height: 30px;
+    border-radius: 4px;
+  }
+
+  .jog-scale {
+    top: 2px;
+    font-size: 8px;
+  }
+
+  .jog-track {
+    top: 19px;
+  }
+
+  .jog-center {
+    top: 10px;
+    bottom: 3px;
+  }
+
+  .jog-knob {
+    top: 9px;
+    width: 19px;
+    height: 19px;
+    margin-left: -9.5px;
+  }
+
+  .quick-note-palette {
+    min-width: 0;
+    min-height: 29px;
+    padding: 2px 0;
+    gap: 4px;
+  }
+
+  .quick-note-buttons {
+    min-width: 0;
+    gap: 3px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .quick-note-button,
+  .quick-note-customize {
+    min-height: 27px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .clip-list-section {
+    min-width: 0;
+    min-height: 36px;
+    max-height: 42px;
+    padding: 3px 5px;
+  }
+
+  .mobile-clip-list,
+  .mobile-marker-list:not(:empty),
+  .mobile-decision-list {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .mobile-marker-list:not(:empty) {
+    min-height: 36px;
+    max-height: 42px;
+    padding: 3px 4px;
+  }
+
+  .mobile-marker-list li {
+    min-width: 132px;
+  }
+
+  .mobile-marker-list .marker-button {
+    min-height: 30px;
+    padding: 3px 6px 3px 10px;
+    border-radius: 3px;
+    font-size: 9px;
+  }
+
+  .mobile-decision-list {
+    min-height: 39px;
+    max-height: 44px;
+    padding: 3px 4px;
+  }
+
+  .mobile-decision-list li {
+    min-width: 84px;
+  }
+
+  .mobile-decision-list .decision-button {
+    min-height: 33px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+  }
+
+  .mobile-timeline-row {
+    min-width: 0;
+    min-height: 27px;
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+
+  .status-line {
+    min-width: 0;
+    min-height: 15px;
+    padding: 0 4px;
+    font-size: 9px;
+    line-height: 1.2;
+  }
+
+  .preview-action-menu {
+    width: min(560px, calc(100vw - 24px));
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1240px) and (min-height: 561px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .top-actions {
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .brand-block {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  .project-line {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .collaboration-line {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-height: 560px) and (pointer: coarse) and (orientation: landscape) {
+  .quick-note-palette,
+  .quick-note-button,
+  .quick-note-customize {
+    min-height: 28px;
+  }
+
+  .jog-row {
+    min-height: 32px;
+  }
+
+  .status-line {
+    display: none;
+  }
+}
+
+@media (min-width: 761px) and (pointer: coarse) {
+  .top-actions button,
+  .reviewer-input,
+  .play,
+  #mobileUndoDecisionButton,
+  #mobileRedoDecisionButton,
+  #usePreviousAngleButton {
+    min-height: 38px;
+    height: 38px;
+    font-size: 12px;
+  }
+
+  .viewer-note-button,
+  .quick-note-button,
+  .quick-note-customize {
+    min-height: 38px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
+  .shortcut-menu {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 9px;
+  }
+
+  .shortcut-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shortcut-grid section > div {
+    min-height: 34px;
+  }
+
+  .context-menu-actions button {
+    min-height: 42px;
+    font-size: 13px;
+  }
+
+  .marker-editor-field input {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  .marker-editor-field textarea {
+    min-height: 88px;
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
   .viewer-action-buttons {
     top: 8px;
     right: 10px;
@@ -2475,18 +3136,24 @@ body.clip-rendering .control-deck > * {
 
   .mobile-options-row {
     grid-area: options;
-    min-height: 30px;
-    display: grid;
-    grid-template-columns: repeat(9, minmax(0, 1fr));
+    min-width: 0;
+    min-height: 34px;
+    display: flex;
     gap: 1px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
   }
 
   .mobile-options-row > .mobile-option {
     display: block;
-    min-height: 30px;
-    padding-inline: 2px;
+    flex: 0 0 auto;
+    min-width: 58px;
+    min-height: 34px;
+    padding-inline: 6px;
     font-size: 10px;
     line-height: 1;
+    white-space: nowrap;
   }
 
   #usePreviousAngleButton {
@@ -2689,5 +3356,258 @@ body.clip-rendering .control-deck > * {
   body.notes-only-mode .mobile-marker-list,
   body.notes-only-mode .mobile-timeline-row {
     grid-column: 1;
+  }
+}
+
+/* Final desktop overrides intentionally follow the shared touch deck. */
+@media (min-width: 761px) and (min-height: 561px) {
+  body {
+    grid-template-rows: auto minmax(260px, 1fr) auto;
+  }
+
+  .topbar {
+    min-height: 44px;
+    padding: 5px 8px;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    gap: 8px;
+  }
+
+  .top-actions {
+    min-width: 0;
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+
+  .top-actions button,
+  .reviewer-input {
+    min-height: 28px;
+    height: 28px;
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .top-actions button {
+    padding: 0 8px;
+  }
+
+  .reviewer-input {
+    width: 116px;
+    padding-inline: 7px;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) clamp(232px, 22vw, 330px);
+  }
+
+  .viewer-panel {
+    padding: 6px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .viewer-frame {
+    min-height: 0;
+  }
+
+  .side-panel {
+    grid-template-rows: 32px minmax(0, 1fr);
+  }
+
+  .angle-grid {
+    min-width: 0;
+    padding: 6px;
+    gap: 5px;
+    grid-template-rows: repeat(var(--angle-count, 1), minmax(96px, 1fr));
+    align-content: stretch;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .angle-tile {
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    padding: 4px;
+    gap: 3px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+
+  .angle-tile video,
+  .angle-tile canvas {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  .control-deck {
+    min-width: 0;
+    max-width: 100vw;
+    max-height: min(286px, 38dvh);
+    padding: 5px 7px 6px;
+    gap: 4px 6px;
+    overflow: hidden;
+    grid-template-columns: 76px minmax(168px, auto) minmax(250px, 390px);
+    grid-template-areas:
+      "transport options jog"
+      "quicknotes quicknotes quicknotes"
+      "clips clips clips"
+      "notes notes notes"
+      "decisions decisions decisions"
+      "buffer buffer buffer"
+      "status status status";
+  }
+
+  .transport-row {
+    grid-template-columns: 76px;
+  }
+
+  .play,
+  #mobileUndoDecisionButton,
+  #mobileRedoDecisionButton,
+  #usePreviousAngleButton {
+    min-height: 30px;
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  #usePreviousAngleButton {
+    min-width: 92px;
+  }
+
+  .mobile-options-row {
+    gap: 3px;
+  }
+
+  .jog-row {
+    max-width: 390px;
+    min-height: 30px;
+    grid-template-columns: 58px minmax(180px, 1fr);
+    gap: 5px;
+  }
+
+  .jog-wheel {
+    height: 30px;
+  }
+
+  .jog-track {
+    top: 19px;
+  }
+
+  .jog-center {
+    top: 10px;
+    bottom: 3px;
+  }
+
+  .jog-knob {
+    top: 9px;
+    width: 19px;
+    height: 19px;
+    margin-left: -9.5px;
+  }
+
+  .quick-note-palette {
+    min-width: 0;
+    min-height: 29px;
+    padding: 2px 0;
+    gap: 4px;
+  }
+
+  .quick-note-buttons {
+    min-width: 0;
+    gap: 3px;
+    overflow-x: auto;
+  }
+
+  .quick-note-button,
+  .quick-note-customize {
+    min-height: 27px;
+    padding: 3px 8px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .clip-list-section {
+    min-width: 0;
+    min-height: 36px;
+    max-height: 42px;
+    padding: 3px 5px;
+  }
+
+  .mobile-clip-list,
+  .mobile-marker-list:not(:empty),
+  .mobile-decision-list {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .mobile-marker-list:not(:empty) {
+    min-height: 36px;
+    max-height: 42px;
+    padding: 3px 4px;
+  }
+
+  .mobile-marker-list .marker-button {
+    min-height: 30px;
+    font-size: 9px;
+  }
+
+  .mobile-decision-list {
+    min-height: 39px;
+    max-height: 44px;
+    padding: 3px 4px;
+  }
+
+  .mobile-decision-list li {
+    min-width: 84px;
+  }
+
+  .mobile-decision-list .decision-button {
+    min-height: 33px;
+    font-size: 9px;
+  }
+
+  .mobile-timeline-row {
+    min-width: 0;
+    min-height: 27px;
+    padding: 2px 5px;
+    font-size: 10px;
+  }
+
+  .status-line {
+    min-width: 0;
+    min-height: 15px;
+    padding: 0 4px;
+    font-size: 9px;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1240px) and (min-height: 561px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .top-actions {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .top-actions button,
+  .reviewer-input,
+  .play,
+  #mobileUndoDecisionButton,
+  #mobileRedoDecisionButton,
+  #usePreviousAngleButton {
+    min-height: 34px;
+    height: 34px;
   }
 }

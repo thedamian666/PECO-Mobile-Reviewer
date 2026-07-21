@@ -19,15 +19,24 @@
         <div class="collaboration-line hidden" id="collaborationLine"></div>
       </div>
       <div class="top-actions">
-        <input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer">
-        <button class="secondary" id="loadPackageButton" type="button">Open Review</button>
-        <button class="secondary" id="reviewLibraryButton" type="button">Reviews</button>
-        <button class="secondary" id="reviewSetupButton" type="button" disabled>Review Setup</button>
-        <button class="secondary" id="saveStateButton" type="button" disabled>Save Now</button>
-        <button class="secondary" id="removePackageButton" type="button" hidden>Remove Review</button>
-        <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected clips" disabled>Render Video</button>
-        <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
-        <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
+        <div class="toolbar-group reviewer-group" aria-label="Reviewer">
+          <input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer">
+        </div>
+        <div class="toolbar-group" aria-label="Review package">
+          <button class="secondary" id="loadPackageButton" type="button" title="Open a review package">Open</button>
+          <button class="secondary" id="reviewLibraryButton" type="button" title="Open the review inbox">Reviews</button>
+          <button class="secondary" id="reviewSetupButton" type="button" title="Review assignment, workflow, and playback settings" disabled>Setup</button>
+        </div>
+        <div class="toolbar-group" aria-label="Review edit">
+          <button class="secondary" id="saveStateButton" type="button" title="Save review state now" disabled>Save</button>
+          <button class="secondary" id="removePackageButton" type="button" title="Remove this review from the device" hidden>Remove</button>
+          <button class="secondary" id="shortcutsButton" type="button" title="Show keyboard shortcuts">Shortcuts</button>
+        </div>
+        <div class="toolbar-group output-group" aria-label="Output">
+          <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected clips" disabled>Render</button>
+          <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
+          <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
+        </div>
       </div>
       <input id="packageInput" type="file" accept=".json,application/json,video/*,.mp4,.mov,.m4v,.webm,.mkv,.pecoreview" multiple hidden>
     </header>
@@ -96,6 +105,7 @@
         <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
         <button class="mobile-option camera-review-only" id="usePreviousAngleButton" type="button" title="Remove this cut and continue the previous camera angle (Q)" aria-keyshortcuts="Q" disabled>Use Previous</button>
         <button class="mobile-option" id="mobileClipToolsButton" type="button" disabled>Render</button>
+        <button class="mobile-option" id="mobileShortcutsButton" type="button">Keys</button>
         <button class="mobile-option" id="mobileSaveServerButton" type="button" disabled hidden>Save</button>
         <button class="mobile-option" id="mobileExportButton" type="button" disabled>Send Back</button>
       </div>
@@ -169,6 +179,7 @@
 
     <div class="marker-selection-menu hidden" id="markerSelectionMenu" role="dialog" aria-live="polite" aria-label="Selected review notes">
       <div class="selection-summary" id="markerSelectionSummary">No notes selected</div>
+      <button class="primary" id="editSelectedMarkerButton" type="button">Edit</button>
       <button class="primary danger-action" id="deleteSelectedMarkersButton" type="button">Delete</button>
       <button class="secondary" id="clearMarkerSelectionButton" type="button">Close Menu</button>
     </div>
@@ -212,11 +223,70 @@
     <div class="preview-action-menu hidden" id="previewActionMenu" role="dialog" aria-live="polite" aria-label="Add review marker">
       <div class="selection-summary" id="previewActionSummary">Add note</div>
       <div class="marker-category-buttons" id="markerCategoryButtons" role="group" aria-label="Note category"></div>
-      <textarea id="markerNoteInput" rows="3" placeholder="Optional note"></textarea>
+      <label class="marker-editor-field">
+        <span>Marker name</span>
+        <input id="markerTitleInput" type="text" maxlength="120" placeholder="Describe this marker in your own words">
+      </label>
+      <label class="marker-editor-field">
+        <span>Details <em>optional</em></span>
+        <textarea id="markerNoteInput" rows="3" maxlength="1000" placeholder="Add context for the editor"></textarea>
+      </label>
       <div class="menu-action-row">
         <button class="primary" id="saveMarkerButton" type="button">Add Note</button>
         <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>
       </div>
+    </div>
+
+    <div class="context-menu hidden" id="contextMenu" role="menu" aria-label="Context actions">
+      <div class="context-menu-head">
+        <strong id="contextMenuTitle">Actions</strong>
+        <span id="contextMenuDetail"></span>
+      </div>
+      <div class="context-menu-actions" id="contextMenuActions"></div>
+    </div>
+
+    <div class="shortcut-menu hidden" id="shortcutMenu" role="dialog" aria-modal="true" aria-label="PECO keyboard shortcuts">
+      <div class="review-library-head">
+        <div>
+          <strong>Keyboard Shortcuts</strong>
+          <div class="dialog-subtitle">Desktop review controls modeled after an NLE.</div>
+        </div>
+        <button class="secondary compact" id="closeShortcutMenuButton" type="button">Close</button>
+      </div>
+      <div class="shortcut-grid">
+        <section>
+          <h3>Playback</h3>
+          <div><kbd>Space</kbd><span>Play / pause</span></div>
+          <div><kbd>J</kbd><span>Reverse shuttle</span></div>
+          <div><kbd>K</kbd><span>Stop</span></div>
+          <div><kbd>L</kbd><span>Forward shuttle</span></div>
+          <div><kbd>&larr; / &rarr;</kbd><span>Previous / next frame</span></div>
+          <div><kbd>Shift</kbd> + <kbd>&larr; / &rarr;</kbd><span>Step 10 frames</span></div>
+          <div><kbd>Home / End</kbd><span>Timeline start / end</span></div>
+        </section>
+        <section>
+          <h3>Multicam</h3>
+          <div><kbd>1&ndash;9</kbd><span>Cut to camera</span></div>
+          <div><kbd>&uarr; / &darr;</kbd><span>Previous / next cut</span></div>
+          <div><kbd>Q</kbd><span>Use previous camera</span></div>
+        </section>
+        <section>
+          <h3>Markers &amp; Editing</h3>
+          <div><kbd>M</kbd><span>Add custom marker</span></div>
+          <div><kbd>Shift</kbd> + <kbd>M</kbd><span>Edit selected marker</span></div>
+          <div><kbd>Delete</kbd><span>Delete selected item</span></div>
+          <div><kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd><span>Undo</span></div>
+          <div><kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd><span>Redo</span></div>
+          <div><kbd>Esc</kbd><span>Close menu / cancel selection</span></div>
+        </section>
+        <section>
+          <h3>Export</h3>
+          <div><kbd>I</kbd><span>Set render IN</span></div>
+          <div><kbd>O</kbd><span>Set render OUT</span></div>
+          <div><kbd>?</kbd><span>Show this reference</span></div>
+        </section>
+      </div>
+      <p class="shortcut-footnote">Right-click camera cuts, markers, clips, or camera previews for contextual actions. Shortcuts are disabled while typing.</p>
     </div>
 
     <div class="note-palette-menu hidden" id="notePaletteMenu" role="dialog" aria-modal="true" aria-label="Customize fast notes">
