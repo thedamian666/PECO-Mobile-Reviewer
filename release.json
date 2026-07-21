@@ -1,9 +1,9 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "notes": [
-    "Mobile JOG opens in a compact inline row instead of covering notes, decisions, or the timeline.",
-    "The shuttle stays collapsible and responsive in phone portrait and landscape."
+    "Promo Studio adds a separate Take Locker, simple sequence, character overlays, and coach notes for wrestling promos.",
+    "Four reversible Clean Voice presets add browser EQ, compression, and peak control while preserving every raw take."
   ],
   "media_included": false
 }

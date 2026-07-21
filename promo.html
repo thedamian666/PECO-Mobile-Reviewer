@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0d100d">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>PECO Promo Studio</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/peco-mobile-180.png">
+    <link rel="stylesheet" href="promo.css">
+  </head>
+  <body>
+    <header class="promo-topbar">
+      <div class="promo-brand">
+        <strong>PECO Promo Studio</strong>
+        <span id="promoStatus">Local-first wrestling promo editor</span>
+      </div>
+      <label class="project-name-field">
+        <span>Project</span>
+        <input id="projectNameInput" type="text" value="Untitled Wrestling Promo" maxlength="120">
+      </label>
+      <nav class="promo-actions" aria-label="Promo project actions">
+        <button id="newPromoButton" type="button">New</button>
+        <button id="openPromoButton" type="button">Open</button>
+        <button id="savePromoButton" type="button">Save</button>
+        <button id="exportPromoButton" class="primary" type="button">Send to Desktop</button>
+        <a class="button-link" href="./">Reviewer</a>
+        <a class="button-link" href="draft.html">Draft</a>
+      </nav>
+      <input id="openPromoInput" type="file" accept=".pecodraft,.pecopromo,application/zip" hidden>
+      <input id="importTakeInput" type="file" accept="video/*" multiple hidden>
+      <input id="cameraTakeInput" type="file" accept="video/*" capture="user" hidden>
+    </header>
+
+    <main class="promo-workspace">
+      <section class="program-panel" aria-label="Promo preview">
+        <div class="program-toolbar">
+          <div class="aspect-switcher" aria-label="Output framing">
+            <button class="aspect-button selected" type="button" data-aspect="9:16">Vertical</button>
+            <button class="aspect-button" type="button" data-aspect="16:9">Landscape</button>
+            <button class="aspect-button" type="button" data-aspect="1:1">Square</button>
+          </div>
+          <label class="safe-toggle"><input id="safeGuidesInput" type="checkbox" checked> Safe guides</label>
+          <span id="previewModeLabel">Sequence preview</span>
+        </div>
+        <div class="program-stage">
+          <div class="program-frame aspect-9-16" id="programFrame">
+            <video id="programVideo" playsinline preload="metadata"></video>
+            <div class="program-empty" id="programEmpty">
+              <strong>Make them remember you.</strong>
+              <span>Record a take or import phone video to begin.</span>
+            </div>
+            <div class="safe-guides" id="safeGuides" aria-hidden="true"><span></span></div>
+            <div class="lower-third" id="lowerThird">
+              <span id="lowerThirdNickname">THE CHALLENGER</span>
+              <strong id="lowerThirdName">WRESTLER NAME</strong>
+              <small id="lowerThirdPromotion">PROMOTION</small>
+            </div>
+            <div class="end-card hidden" id="endCard">
+              <span id="endCardPromotion">PROMOTION</span>
+              <strong><span id="endCardName">WRESTLER</span> <em>vs</em> <span id="endCardOpponent">OPPONENT</span></strong>
+              <small id="endCardEvent">EVENT · DATE · VENUE</small>
+              <b id="endCardCta">FOLLOW FOR DETAILS</b>
+            </div>
+            <div class="recording-badge hidden" id="recordingBadge">REC <span id="recordingTime">00:00</span></div>
+            <div class="viewer-time" id="viewerTime">00:00:00:00</div>
+            <button class="viewer-play-hint" id="viewerPlayHint" type="button" aria-label="Play or pause preview">Tap to play</button>
+          </div>
+        </div>
+        <div class="preview-controls">
+          <button id="previewSequenceButton" type="button">Sequence</button>
+          <button id="compareAButton" type="button" disabled>A</button>
+          <button id="compareBButton" type="button" disabled>B</button>
+          <button id="previewEndCardButton" type="button">End Card</button>
+          <span id="sequenceReadout">0 clips · 00:00</span>
+        </div>
+        <input id="promoTimelineSlider" class="timeline-slider" type="range" min="0" max="1" value="0" step="1" aria-label="Promo playhead">
+      </section>
+
+      <aside class="studio-sidebar" aria-label="Promo setup and styling">
+        <details class="studio-section" open>
+          <summary>Promo Setup <span id="promoTypeSummary">Match Challenge</span></summary>
+          <div class="section-body setup-grid">
+            <label>Type
+              <select id="promoTypeSelect">
+                <option value="character_intro">Character Introduction</option>
+                <option value="match_challenge" selected>Match Challenge</option>
+                <option value="event_ad">Event Advertisement</option>
+                <option value="post_match">Post-Match Reaction</option>
+              </select>
+            </label>
+            <label>Target
+              <select id="targetSecondsSelect">
+                <option value="15">15 seconds</option>
+                <option value="30" selected>30 seconds</option>
+                <option value="60">60 seconds</option>
+                <option value="90">90 seconds</option>
+              </select>
+            </label>
+            <label class="wide">Who are you?<input id="beatIdentityInput" data-beat="identity" type="text" maxlength="180" placeholder="Name and character"></label>
+            <label class="wide">Who are you addressing?<input id="beatTargetInput" data-beat="target" type="text" maxlength="180" placeholder="Opponent or audience"></label>
+            <label class="wide">What happened?<textarea id="beatGrievanceInput" data-beat="grievance" rows="2" maxlength="420" placeholder="The issue, result, or moment driving this promo"></textarea></label>
+            <label class="wide">Why does it matter?<textarea id="beatStakesInput" data-beat="stakes" rows="2" maxlength="420" placeholder="The stakes of the match"></textarea></label>
+            <label class="wide">When and where?<input id="beatEventDetailsInput" data-beat="event_details" type="text" maxlength="220" placeholder="Event, date, and venue"></label>
+            <label class="wide">Closing line<input id="beatClosingInput" data-beat="closing_line" type="text" maxlength="220" placeholder="Threat, promise, or catchphrase"></label>
+          </div>
+        </details>
+
+        <details class="studio-section" open>
+          <summary>Character & Event Kit <span>Reusable</span></summary>
+          <div class="section-body kit-grid">
+            <label>Ring name<input id="wrestlerNameInput" data-kit="wrestler_name" type="text" maxlength="80"></label>
+            <label>Nickname<input id="nicknameInput" data-kit="nickname" type="text" maxlength="80"></label>
+            <label>Opponent<input id="opponentInput" data-kit="opponent" type="text" maxlength="80"></label>
+            <label>Promotion<input id="promotionInput" data-kit="promotion" type="text" maxlength="100"></label>
+            <label>Event<input id="eventNameInput" data-kit="event_name" type="text" maxlength="100"></label>
+            <label>Date<input id="eventDateInput" data-kit="event_date" type="text" maxlength="60" placeholder="Saturday, August 8"></label>
+            <label>Venue<input id="venueInput" data-kit="venue" type="text" maxlength="100"></label>
+            <label>Call to action<input id="socialCtaInput" data-kit="social_cta" type="text" maxlength="120" placeholder="Tickets at example.com"></label>
+            <label class="color-field">Primary<input id="primaryColorInput" data-kit="primary_color" type="color" value="#92ff45"></label>
+            <label class="color-field">Background<input id="secondaryColorInput" data-kit="secondary_color" type="color" value="#111711"></label>
+            <label class="check-field"><input id="lowerThirdEnabledInput" type="checkbox" checked> Lower third</label>
+            <label class="check-field"><input id="endCardEnabledInput" type="checkbox" checked> End card</label>
+          </div>
+        </details>
+
+        <details class="studio-section" open>
+          <summary>Clean Voice <span id="voicePresetSummary">Natural</span></summary>
+          <div class="section-body voice-panel">
+            <div class="voice-presets" id="voicePresetButtons">
+              <button type="button" data-voice-preset="natural" class="selected">Natural</button>
+              <button type="button" data-voice-preset="broadcast">Broadcast</button>
+              <button type="button" data-voice-preset="aggressive">Aggressive</button>
+              <button type="button" data-voice-preset="arena">Arena</button>
+            </div>
+            <label class="bypass-toggle"><input id="voiceBypassInput" type="checkbox"> Bypass processing for A/B</label>
+            <div class="voice-meter" aria-label="Voice level"><span id="voiceMeterFill"></span><i>-18</i><i>-9</i><i>-1</i></div>
+            <p id="voiceDescription">Gentle cleanup that keeps room tone, breath, and performance dynamics.</p>
+            <button id="voiceIsolationButton" type="button" disabled>Isolate Voice · Later milestone</button>
+            <small>Deep isolation is intentionally disabled here. Milestone 1 preserves the raw take and applies only reversible browser EQ, compression, and peak control.</small>
+          </div>
+        </details>
+      </aside>
+
+      <section class="take-panel" aria-label="Take Locker">
+        <div class="section-heading">
+          <div><strong>Take Locker</strong><span id="takeCount">0 takes</span></div>
+          <div class="take-actions">
+            <button id="recordTakeButton" class="record" type="button">Record Take</button>
+            <button id="importTakeButton" type="button">Import Video</button>
+          </div>
+        </div>
+        <div class="take-help">Tap a take to preview it. Use A and B for quick performance comparison. Raw takes remain untouched.</div>
+        <div class="take-list" id="takeList"></div>
+      </section>
+
+      <section class="sequence-panel" aria-label="Promo sequence">
+        <div class="section-heading">
+          <div><strong>Promo Sequence</strong><span id="clipCount">0 clips</span></div>
+          <div class="sequence-actions">
+            <button id="moveEarlierButton" type="button" disabled>Earlier</button>
+            <button id="moveLaterButton" type="button" disabled>Later</button>
+            <button id="splitClipButton" type="button" disabled>Blade</button>
+            <button id="rippleDeleteButton" class="danger" type="button" disabled>Delete</button>
+          </div>
+        </div>
+        <div class="sequence-strip" id="sequenceStrip"></div>
+        <div class="trim-panel" id="trimPanel">
+          <span id="selectedClipLabel">Select a sequence clip</span>
+          <div><b>IN</b><button data-trim-edge="in" data-trim-frames="-10" type="button" disabled>-10</button><button data-trim-edge="in" data-trim-frames="-1" type="button" disabled>-1</button><button data-trim-edge="in" data-trim-frames="1" type="button" disabled>+1</button><button data-trim-edge="in" data-trim-frames="10" type="button" disabled>+10</button></div>
+          <div><b>OUT</b><button data-trim-edge="out" data-trim-frames="-10" type="button" disabled>-10</button><button data-trim-edge="out" data-trim-frames="-1" type="button" disabled>-1</button><button data-trim-edge="out" data-trim-frames="1" type="button" disabled>+1</button><button data-trim-edge="out" data-trim-frames="10" type="button" disabled>+10</button></div>
+        </div>
+      </section>
+
+      <section class="notes-panel" aria-label="Coach and Desktop notes">
+        <div class="section-heading"><div><strong>Coach / Desktop Notes</strong><span id="noteCount">0 notes</span></div></div>
+        <div class="note-entry">
+          <select id="noteCategorySelect" aria-label="Note category">
+            <option value="coach">Coach feedback</option>
+            <option value="performance">Performance</option>
+            <option value="graphic">Overlay</option>
+            <option value="audio">Audio</option>
+            <option value="codex">Codex work order</option>
+          </select>
+          <input id="noteLabelInput" type="text" maxlength="180" placeholder="What should change here?">
+          <textarea id="noteDetailsInput" rows="2" maxlength="900" placeholder="Optional detail"></textarea>
+          <button id="addNoteButton" class="primary" type="button">Add at Playhead</button>
+        </div>
+        <div class="note-list" id="noteList"></div>
+      </section>
+    </main>
+
+    <footer class="promo-footer">
+      <span id="saveStateLabel">Not saved yet</span>
+      <span>Tap preview to play · raw takes preserved · Desktop import creates a new timeline</span>
+      <span>PECO Promo Studio Milestone 1</span>
+    </footer>
+
+    <script src="promo-core.js"></script>
+    <script src="promo-storage.js"></script>
+    <script src="peco-draft-archive.js"></script>
+    <script src="promo.js"></script>
+  </body>
+</html>

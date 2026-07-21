@@ -1,13 +1,26 @@
 {
   "name": "PECO Mobile Reviewer",
   "short_name": "PECO Reviewer",
-  "description": "Touch-first pro-wrestling review plus portable cut timelines and edit notes for PECO.",
+  "description": "Touch-first pro-wrestling review, portable cut timelines, and source-safe wrestling promo creation for PECO.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#10110f",
   "theme_color": "#10110f",
   "orientation": "any",
+  "shortcuts": [
+    {
+      "name": "Wrestling Promo Studio",
+      "short_name": "Promo Studio",
+      "description": "Record, cut, style, and hand off a wrestling promo.",
+      "url": "./promo.html"
+    },
+    {
+      "name": "PECO Anywhere Draft",
+      "short_name": "Draft",
+      "url": "./draft.html"
+    }
+  ],
   "icons": [
     {
       "src": "icons/peco-mobile-192.png",
