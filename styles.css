@@ -430,12 +430,17 @@ body.project-empty-mode #removePackageButton {
   box-shadow: inset 0 0 0 1px rgba(142, 207, 98, 0.35);
 }
 
-.angle-tile video {
+.angle-tile video,
+.angle-tile canvas {
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #050604;
   border-radius: 6px;
   object-fit: contain;
+}
+
+.angle-tile canvas {
+  display: block;
 }
 
 .angle-name {
@@ -2202,7 +2207,8 @@ body.clip-rendering .control-deck > * {
   grid-template-rows: minmax(0, 1fr) auto;
 }
 
-.angle-tile video {
+.angle-tile video,
+.angle-tile canvas {
   min-height: 0;
   height: 100%;
 }

@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.2.1";
-const APP_VERSION_CODE = 23;
+const APP_VERSION = "0.2.2";
+const APP_VERSION_CODE = 24;
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
 const APP_CACHE_PREFIX = "peco-mobile-multicam-shell-";
@@ -16,8 +16,6 @@ const EDGE_SEEK_SECONDS = 5;
 const VIDEO_SYNC_INTERVAL_MS = 250;
 const PROGRAM_SOFT_SYNC_TOLERANCE_SECONDS = 0.055;
 const PROGRAM_HARD_SYNC_TOLERANCE_SECONDS = 0.45;
-const PREVIEW_SOFT_SYNC_TOLERANCE_SECONDS = 0.1;
-const PREVIEW_HARD_SYNC_TOLERANCE_SECONDS = 0.7;
 const SYNC_RATE_ADJUSTMENT = 0.035;
 const PLAYBACK_QUALITY_SAMPLE_INTERVAL_MS = 2000;
 const PLAYBACK_QUALITY_MIN_FRAMES = 24;
@@ -26,27 +24,21 @@ const MOBILE_PREVIEW_MEDIA_QUERY = "(max-width: 760px), (max-height: 560px) and 
 const PERFORMANCE_PROFILES = Object.freeze({
   smooth: Object.freeze({
     label: "Smooth",
-    description: "Two active decoders. Angle previews update when paused or seeking.",
+    description: "All camera angles stay live with lower-rate preview drawing and relaxed sync checks.",
     syncIntervalMs: 700,
-    playAllProgramVideos: false,
-    liveAlternatePreviews: false,
-    previewPreload: "metadata"
+    previewFrameIntervalMs: 100
   }),
   balanced: Object.freeze({
     label: "Balanced",
-    description: "Active program plus alternate-camera previews, without duplicate layout decoders.",
+    description: "All camera angles stay pre-synchronized with responsive preview drawing.",
     syncIntervalMs: 400,
-    playAllProgramVideos: false,
-    liveAlternatePreviews: true,
-    previewPreload: "metadata"
+    previewFrameIntervalMs: 50
   }),
   quality: Object.freeze({
     label: "Full previews",
-    description: "All program angles and visible previews stay live for powerful computers.",
+    description: "All camera angles stay pre-synchronized with full-rate preview drawing.",
     syncIntervalMs: VIDEO_SYNC_INTERVAL_MS,
-    playAllProgramVideos: true,
-    liveAlternatePreviews: true,
-    previewPreload: "auto"
+    previewFrameIntervalMs: 1000 / 30
   })
 });
 const ANGLE_SWIPE_MIN_PX = 72;
@@ -264,6 +256,7 @@ const state = {
   performanceSample: null,
   lastPerformanceSampleMs: 0,
   previewGridKey: "",
+  lastPreviewCanvasDrawMs: 0,
   viewportRenderTimer: 0,
   pausedForVisibility: false,
   gridVideos: new Map(),
@@ -1384,27 +1377,40 @@ function preferredPreviewGridKey() {
 }
 
 function programEntriesForPlayback() {
-  const entries = [...state.programVideos.values()];
-  if (state.clipRender || playbackPerformanceProfile().playAllProgramVideos) {
-    return entries;
-  }
-  const active = state.programVideos.get(state.activeAngleId);
-  return active ? [active] : [];
+  return [...state.programVideos.values()];
 }
 
-function previewEntriesForPlayback() {
-  if (state.clipRender || !playbackPerformanceProfile().liveAlternatePreviews) {
-    return [];
+function drawAnglePreviewFrames(timestamp = performance.now(), options = {}) {
+  if (!state.project || !state.gridVideos.size) {
+    return;
   }
-  const previews = [...state.gridVideos.values()];
-  return playbackPerformanceProfile().playAllProgramVideos
-    ? previews
-    : previews.filter(preview => preview.angleId !== state.activeAngleId);
+  const interval = playbackPerformanceProfile().previewFrameIntervalMs;
+  if (!options.force && timestamp - state.lastPreviewCanvasDrawMs < interval) {
+    return;
+  }
+  state.lastPreviewCanvasDrawMs = timestamp;
+  for (const preview of state.gridVideos.values()) {
+    const source = state.programVideos.get(preview.angleId)?.video;
+    if (!source || source.readyState < 2 || source.videoWidth <= 0 || source.videoHeight <= 0) {
+      continue;
+    }
+    try {
+      preview.context.drawImage(source, 0, 0, preview.canvas.width, preview.canvas.height);
+      preview.lastDrawnMediaTime = Number(source.currentTime) || 0;
+      preview.canvas.dataset.mediaTime = String(preview.lastDrawnMediaTime);
+    } catch {
+      // A cross-origin or not-yet-ready frame should not stop multicam playback.
+    }
+  }
+}
+
+function scheduleAnglePreviewRefresh() {
+  requestAnimationFrame(() => drawAnglePreviewFrames(performance.now(), { force: true }));
+  setTimeout(() => drawAnglePreviewFrames(performance.now(), { force: true }), 90);
 }
 
 function applyPlaybackResourcePolicy(options = {}) {
   const programEntries = new Set(programEntriesForPlayback());
-  const previewEntries = new Set(previewEntriesForPlayback());
   for (const entry of state.programVideos.values()) {
     if (!programEntries.has(entry)) {
       entry.video.pause();
@@ -1414,15 +1420,9 @@ function applyPlaybackResourcePolicy(options = {}) {
     }
   }
   for (const preview of state.gridVideos.values()) {
-    preview.video.dataset.livePreview = previewEntries.has(preview) ? "true" : "false";
-    preview.video.closest(".angle-tile")?.classList.toggle("static-preview", !previewEntries.has(preview));
-    if (!previewEntries.has(preview)) {
-      preview.video.pause();
-      setMediaPlaybackRate(preview.video, state.reviewPlaybackRate);
-    } else if (options.play && preview.video.paused) {
-      preview.video.play().catch(() => {});
-    }
+    preview.canvas.closest(".angle-tile")?.classList.remove("static-preview");
   }
+  scheduleAnglePreviewRefresh();
   renderPerformanceStatus();
 }
 
@@ -1664,15 +1664,23 @@ function createAnglePreviewTile(angle, options = {}) {
   tile.disabled = !proxyAvailable(angle);
   tile.addEventListener("click", event => handleAnglePreviewTap(event, angle.id));
   if (options.showVideo && proxyAvailable(angle)) {
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = playbackPerformanceProfile().previewPreload;
-    video.src = proxyUrlFor(angle);
-    video.addEventListener("loadedmetadata", () => syncVideoElement(video, angle), { once: true });
-    tile.appendChild(video);
-    state.gridVideos.set(`${options.keyPrefix || "preview"}:${angle.id}`, { angleId: angle.id, video });
-    syncVideoElement(video, angle);
+    const canvas = document.createElement("canvas");
+    canvas.className = "angle-preview-canvas";
+    canvas.width = 320;
+    canvas.height = 180;
+    canvas.setAttribute("aria-hidden", "true");
+    const context = canvas.getContext("2d", { alpha: false });
+    tile.appendChild(canvas);
+    if (context) {
+      context.fillStyle = "#050604";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      state.gridVideos.set(`${options.keyPrefix || "preview"}:${angle.id}`, {
+        angleId: angle.id,
+        canvas,
+        context,
+        lastDrawnMediaTime: -1
+      });
+    }
   }
   const name = document.createElement("div");
   name.className = "angle-name";
@@ -1694,17 +1702,8 @@ function handleAnglePreviewTap(event, angleId) {
 }
 
 function clearPreviewVideos() {
-  for (const preview of state.gridVideos.values()) {
-    const video = preview.video || preview;
-    try {
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-    } catch {
-      // Preview cleanup should never block the reviewer UI.
-    }
-  }
   state.gridVideos.clear();
+  state.lastPreviewCanvasDrawMs = 0;
 }
 
 function updateAngleActiveState() {
@@ -1738,7 +1737,7 @@ function ensureProgramVideos() {
     const video = first ? elements.mainVideo : document.createElement("video");
     video.className = "program-video";
     video.playsInline = true;
-    video.preload = playbackPerformanceProfile().playAllProgramVideos ? "auto" : "metadata";
+    video.preload = "auto";
     video.controls = false;
     video.muted = true;
     video.defaultMuted = true;
@@ -1798,6 +1797,28 @@ function updateProgramVideoVisibility() {
     entry.video.defaultMuted = true;
   }
   updateAngleActiveState();
+}
+
+function showActiveProgramAngle(options = {}) {
+  const angle = activeAngle();
+  const video = activeProgramVideo();
+  if (!angle || !video) {
+    return;
+  }
+  const startedAt = options.startedAt || performance.now();
+  if (!state.isPlaying && !state.shuttleRaf) {
+    syncVideoElement(video, angle);
+  }
+  state.visibleAngleId = angle.id;
+  updateProgramVideoVisibility();
+  if (state.isPlaying || state.shuttleRaf) {
+    keepProgramVideosPlaying();
+  }
+  scheduleAnglePreviewRefresh();
+  if (options.reportSwitch) {
+    const elapsed = Math.round(performance.now() - startedAt);
+    setStatus(`Switched to ${angle.name} at ${framesToTimecode(state.timelineFrame, state.project.fps)} (${elapsed} ms visual cut).`);
+  }
 }
 
 function audioMasterAngle() {
@@ -2153,7 +2174,7 @@ function playbackDiagnosticsText() {
     `Network hint: ${capabilities.effectiveType}${capabilities.saveData ? " (data saver)" : ""}`,
     `Project angles: ${state.project?.angles?.length || 0}`,
     `Active program decoders: ${state.isPlaying ? programEntriesForPlayback().length : 0}`,
-    `Active preview decoders: ${state.isPlaying ? previewEntriesForPlayback().length : 0}`,
+    `Active preview decoders: 0 (canvas mirrors: ${state.gridVideos.size})`,
     `Audio master active: ${Boolean(state.isPlaying && !elements.audioMaster.paused)}`,
     `Decoded frames: ${quality?.total ?? "Unavailable"}`,
     `Dropped frames: ${quality?.dropped ?? "Unavailable"}`
@@ -2594,12 +2615,11 @@ function switchAngle(angleId) {
   if (!isReady() || angleId === state.activeAngleId) {
     return;
   }
-  const wasPlaying = state.isPlaying;
+  const startedAt = performance.now();
   clearDecisionSelectionState();
   state.activeAngleId = angleId;
   recordDecision(angleId, { frame: state.timelineFrame });
-  wireMainVideo({ playWhenReady: wasPlaying, reportSwitch: true });
-  applyPlaybackResourcePolicy({ play: false });
+  showActiveProgramAngle({ reportSwitch: true, startedAt });
   renderTransport();
   renderBoundaryControls();
   renderDecisionList();
@@ -2687,8 +2707,7 @@ function finishDecisionHistoryChange(status) {
   const active = activeDecisionAtFrame(state.timelineFrame);
   if (active) {
     state.activeAngleId = active.angleId;
-    keepProgramVideosPlaying();
-    activateProgramVideoWhenReady({ waitForFrame: state.isPlaying });
+    showActiveProgramAngle();
   }
   renderDecisionEditState();
   scheduleProjectStateAutosave();
@@ -2898,8 +2917,7 @@ function deleteSelectedDecisionFrames() {
   state.selectedDecisionFrame = active?.frame ?? state.decisions[state.decisions.length - 1]?.frame ?? 0;
   if (active) {
     state.activeAngleId = active.angleId;
-    keepProgramVideosPlaying();
-    activateProgramVideoWhenReady({ waitForFrame: state.isPlaying });
+    showActiveProgramAngle();
   }
   renderDecisionEditState();
   scheduleProjectStateAutosave();
@@ -3009,8 +3027,7 @@ function setTimelineFrame(frame, options = {}) {
   const active = activeDecisionAtFrame(state.timelineFrame);
   if (active && active.angleId !== state.activeAngleId) {
     state.activeAngleId = active.angleId;
-    wireMainVideo({ playWhenReady: state.isPlaying || state.shuttleRaf > 0 });
-    applyPlaybackResourcePolicy({ play: false });
+    showActiveProgramAngle();
   }
   if (active && options.followActiveDecision) {
     state.selectedDecisionFrame = active.frame;
@@ -3046,13 +3063,7 @@ function syncAllVideos() {
       syncVideoElement(entry.video, programAngle);
     }
   }
-  const previewEntries = state.isPlaying ? previewEntriesForPlayback() : [...state.gridVideos.values()];
-  for (const preview of previewEntries) {
-    const gridAngle = angleById(preview.angleId);
-    if (gridAngle) {
-      syncVideoElement(preview.video, gridAngle);
-    }
-  }
+  scheduleAnglePreviewRefresh();
 }
 
 function maintainProgramVideoSync() {
@@ -3080,21 +3091,7 @@ function maintainProgramVideoSync() {
 }
 
 function maintainPreviewVideoSync(clockTime = playbackClockTimelineSeconds()) {
-  if (!state.project) {
-    return;
-  }
-  for (const preview of previewEntriesForPlayback()) {
-    const angle = angleById(preview.angleId);
-    const video = preview.video;
-    if (!angle || !video || video.readyState < 1) {
-      continue;
-    }
-    const target = videoTimeForAngleAtTimelineSeconds(angle, clockTime);
-    gentlyCorrectMediaDrift(video, target, {
-      softTolerance: PREVIEW_SOFT_SYNC_TOLERANCE_SECONDS,
-      hardTolerance: PREVIEW_HARD_SYNC_TOLERANCE_SECONDS
-    });
-  }
+  drawAnglePreviewFrames(performance.now());
 }
 
 function gentlyCorrectMediaDrift(media, target, options) {
@@ -3389,8 +3386,7 @@ function removeCurrentCameraCut() {
   state.selectedDecisionFrame = previous.frame;
   state.activeAngleId = previous.angleId;
   clearDecisionSelectionState();
-  keepProgramVideosPlaying();
-  activateProgramVideoWhenReady({ waitForFrame: state.isPlaying || state.shuttleRaf > 0 });
+  showActiveProgramAngle();
   renderDecisionEditState();
   scheduleProjectStateAutosave();
   showCutCorrectionFeedback(previous.cameraName || previous.angleId);
@@ -3564,9 +3560,6 @@ function playFromCurrentFrame() {
   enableDecisionListAutoFollow({ center: true });
   enableMarkerListAutoFollow({ center: true });
   playSyncedProgramVideos().then(() => {
-    for (const preview of previewEntriesForPlayback()) {
-      preview.video.play().catch(() => {});
-    }
     applyPlaybackResourcePolicy({ play: true });
     startPlaybackLoop();
     renderTransport();
@@ -3637,9 +3630,7 @@ function pausePlayback(options = {}) {
   for (const entry of state.programVideos.values()) {
     entry.video.pause();
   }
-  for (const preview of state.gridVideos.values()) {
-    preview.video.pause();
-  }
+  drawAnglePreviewFrames(performance.now(), { force: true });
   cancelAnimationFrame(state.playbackRaf);
   state.playbackRaf = 0;
   renderTransport();
@@ -3651,7 +3642,7 @@ function pausePlayback(options = {}) {
 
 function startPlaybackLoop() {
   cancelAnimationFrame(state.playbackRaf);
-  const tick = () => {
+  const tick = timestamp => {
     if (!state.isPlaying) {
       return;
     }
@@ -3671,6 +3662,7 @@ function startPlaybackLoop() {
       }
       setTimelineFrame(timelineFrame, { syncVideos: false, followActiveDecision: true });
       maintainProgramVideoSync();
+      drawAnglePreviewFrames(timestamp);
       monitorPlaybackPerformance();
     }
     state.playbackRaf = requestAnimationFrame(tick);
@@ -3806,6 +3798,7 @@ function startShuttle(speed) {
       stopShuttle();
       return;
     }
+    drawAnglePreviewFrames(timestamp);
     state.shuttleRaf = requestAnimationFrame(tick);
   };
   state.shuttleRaf = requestAnimationFrame(tick);
@@ -3840,11 +3833,6 @@ function playFloaterJogAudio() {
       entry.video.play().catch(() => {});
     }
   }
-  for (const preview of previewEntriesForPlayback()) {
-    if (preview.video.paused) {
-      preview.video.play().catch(() => {});
-    }
-  }
 }
 
 function pauseReviewVideos() {
@@ -3853,9 +3841,7 @@ function pauseReviewVideos() {
   for (const entry of state.programVideos.values()) {
     entry.video.pause();
   }
-  for (const preview of state.gridVideos.values()) {
-    preview.video.pause();
-  }
+  drawAnglePreviewFrames(performance.now(), { force: true });
 }
 
 function setReviewPlaybackRate(rate) {
@@ -3866,9 +3852,6 @@ function setReviewPlaybackRate(rate) {
   }
   for (const entry of state.programVideos.values()) {
     setMediaPlaybackRate(entry.video, rate);
-  }
-  for (const preview of state.gridVideos.values()) {
-    setMediaPlaybackRate(preview.video, rate);
   }
 }
 
@@ -4591,9 +4574,6 @@ async function renderProxyClip() {
       return;
     }
     await render.audio.play();
-    for (const preview of state.gridVideos.values()) {
-      preview.video.play().catch(() => {});
-    }
     drawClipRenderFrame(render);
     if (render.webCodecs) {
       render.webCodecs.resumeAudio();
@@ -5159,9 +5139,6 @@ async function advanceClipRenderSegment(render) {
       return;
     }
     await render.audio.play();
-    for (const preview of state.gridVideos.values()) {
-      preview.video.play().catch(() => {});
-    }
     startPlaybackLoop();
     if (render.webCodecs) {
       render.webCodecs.resumeAudio();
