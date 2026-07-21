@@ -1,7 +1,7 @@
 {
   "name": "PECO Mobile Reviewer",
   "short_name": "PECO Reviewer",
-  "description": "Touch-first proxy camera decisions and timecoded edit notes for PECO.",
+  "description": "Touch-first pro-wrestling review plus portable cut timelines and edit notes for PECO.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

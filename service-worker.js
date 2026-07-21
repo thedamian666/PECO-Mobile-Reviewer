@@ -1,4 +1,4 @@
-const CACHE_NAME = "peco-mobile-multicam-shell-v25";
+const CACHE_NAME = "peco-mobile-multicam-shell-v26";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,6 +6,11 @@ const APP_SHELL = [
   "./pecoreview-archive.js",
   "./browser-storage.js",
   "./review-workflow.js",
+  "./draft.html",
+  "./draft.css",
+  "./draft-storage.js",
+  "./peco-draft-archive.js",
+  "./draft.js",
   "./vendor/webm-muxer/webm-muxer.js",
   "./app.js",
   "./manifest.webmanifest",

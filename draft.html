@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#10110f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>PECO Anywhere Draft</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/peco-mobile-180.png">
+    <link rel="stylesheet" href="draft.css">
+  </head>
+  <body>
+    <header class="draft-topbar">
+      <div class="draft-brand">
+        <strong>PECO Anywhere Draft</strong>
+        <span id="draftStatus">Local-first cut timeline</span>
+      </div>
+      <label class="project-name-field">
+        <span>Project</span>
+        <input id="projectNameInput" type="text" value="Untitled Draft" maxlength="120">
+      </label>
+      <nav class="draft-actions" aria-label="Draft project actions">
+        <button id="newDraftButton" type="button">New</button>
+        <button id="openDraftButton" type="button">Open Draft</button>
+        <button id="addMediaButton" type="button">Add Media</button>
+        <button id="cameraMediaButton" type="button">Camera</button>
+        <button id="saveDraftButton" type="button">Save</button>
+        <button id="exportDraftButton" class="primary" type="button">Send to Desktop</button>
+        <a class="button-link" href="./">Reviewer</a>
+      </nav>
+      <input id="openDraftInput" type="file" accept=".pecodraft,application/zip" hidden>
+      <input id="addMediaInput" type="file" accept="video/*,audio/*,image/*" multiple hidden>
+      <input id="cameraMediaInput" type="file" accept="video/*" capture="environment" hidden>
+    </header>
+
+    <main class="draft-workspace">
+      <section class="program-panel" aria-label="Draft program viewer">
+        <div class="program-frame" id="programFrame">
+          <video id="programVideo" playsinline preload="metadata"></video>
+          <div class="program-empty" id="programEmpty">
+            <strong>Start anywhere</strong>
+            <span>Add phone video, open a .pecodraft, or use Camera.</span>
+          </div>
+          <div class="viewer-badge" id="viewerBadge">CUT preview</div>
+          <div class="viewer-time" id="viewerTime">00:00:00:00</div>
+        </div>
+        <div class="transport" aria-label="Draft transport">
+          <button id="jumpStartButton" type="button" title="Beginning">|&lt;</button>
+          <button id="backTenButton" type="button" title="Back 10 frames">-10</button>
+          <button id="backOneButton" type="button" title="Back 1 frame">-1</button>
+          <button id="playButton" class="play" type="button">Play</button>
+          <button id="forwardOneButton" type="button" title="Forward 1 frame">+1</button>
+          <button id="forwardTenButton" type="button" title="Forward 10 frames">+10</button>
+          <button id="jumpEndButton" type="button" title="End">&gt;|</button>
+        </div>
+        <input id="timelineSlider" class="timeline-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Draft playhead">
+      </section>
+
+      <aside class="draft-sidebar">
+        <section class="sidebar-section media-section">
+          <div class="section-head">
+            <strong>Media</strong>
+            <span id="mediaCount">0</span>
+          </div>
+          <div class="media-list" id="mediaList"></div>
+          <div class="media-actions">
+            <button id="appendMediaButton" type="button" disabled>Append</button>
+            <button id="insertMediaButton" type="button" disabled>Insert at Playhead</button>
+          </div>
+        </section>
+
+        <section class="sidebar-section inspector-section">
+          <div class="section-head">
+            <strong>Selected Clip</strong>
+            <span id="clipSelectionLabel">None</span>
+          </div>
+          <div class="protected-warning hidden" id="protectedWarning">
+            Protected Desktop layer. You can view it and leave notes, but its timing/effects cannot be changed here.
+          </div>
+          <div class="inspector-grid">
+            <span>Trim IN</span>
+            <div class="button-row">
+              <button data-trim="in" data-frames="-10" type="button">-10</button>
+              <button data-trim="in" data-frames="-1" type="button">-1</button>
+              <button data-trim="in" data-frames="1" type="button">+1</button>
+              <button data-trim="in" data-frames="10" type="button">+10</button>
+            </div>
+            <span>Trim OUT</span>
+            <div class="button-row">
+              <button data-trim="out" data-frames="-10" type="button">-10</button>
+              <button data-trim="out" data-frames="-1" type="button">-1</button>
+              <button data-trim="out" data-frames="1" type="button">+1</button>
+              <button data-trim="out" data-frames="10" type="button">+10</button>
+            </div>
+            <span>Nudge</span>
+            <div class="button-row">
+              <button data-nudge="-10" type="button">-10</button>
+              <button data-nudge="-1" type="button">-1</button>
+              <button data-nudge="1" type="button">+1</button>
+              <button data-nudge="10" type="button">+10</button>
+            </div>
+            <label for="transitionSelect">Transition</label>
+            <div class="transition-row">
+              <select id="transitionSelect">
+                <option value="none">Cut</option>
+                <option value="cross_dissolve">Cross Dissolve</option>
+                <option value="fade_black">Fade Through Black</option>
+              </select>
+              <select id="transitionFramesSelect" aria-label="Transition duration">
+                <option value="6">6f</option>
+                <option value="12" selected>12f</option>
+                <option value="24">24f</option>
+              </select>
+            </div>
+          </div>
+          <div class="clip-actions">
+            <button id="moveClipLeftButton" type="button">Move Earlier</button>
+            <button id="moveClipRightButton" type="button">Move Later</button>
+            <button id="splitClipButton" type="button">Blade</button>
+            <button id="liftDeleteButton" type="button">Lift Delete</button>
+            <button id="rippleDeleteButton" class="danger" type="button">Ripple Delete</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="timeline-panel" aria-label="Browser draft timeline">
+        <div class="timeline-toolbar">
+          <div>
+            <strong>Timeline</strong>
+            <span id="timelineSummary">0 clips</span>
+          </div>
+          <div class="timeline-actions">
+            <button id="undoButton" type="button" disabled>Undo</button>
+            <button id="redoButton" type="button" disabled>Redo</button>
+            <button id="zoomOutButton" type="button">−</button>
+            <button id="zoomFitButton" type="button">Fit</button>
+            <button id="zoomInButton" type="button">+</button>
+          </div>
+        </div>
+        <div class="timeline-scroll" id="timelineScroll">
+          <div class="timeline-stage" id="timelineStage">
+            <div class="time-ruler" id="timeRuler"></div>
+            <div class="track-stack" id="trackStack"></div>
+            <div class="note-lane" id="noteLane"></div>
+            <div class="playhead" id="playhead"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="notes-panel" aria-label="Edit notes for PECO and Codex">
+        <div class="section-head">
+          <strong>Edit Notes / Codex Work Orders</strong>
+          <span id="noteCount">0</span>
+        </div>
+        <div class="note-entry">
+          <select id="noteCategorySelect" aria-label="Note category">
+            <option value="cut">Cut / Tighten</option>
+            <option value="graphic">Overlay / Graphic</option>
+            <option value="audio">Audio</option>
+            <option value="transition">Transition</option>
+            <option value="codex">Codex Work Order</option>
+            <option value="question">Question</option>
+          </select>
+          <input id="noteTitleInput" type="text" maxlength="180" placeholder="What should happen here?">
+          <textarea id="noteDetailsInput" rows="2" maxlength="1200" placeholder="Optional detail for PECO or Codex"></textarea>
+          <button id="addNoteButton" class="primary" type="button">Add at Playhead</button>
+        </div>
+        <div class="note-list" id="noteList"></div>
+      </section>
+    </main>
+
+    <footer class="draft-footer">
+      <span id="saveStateLabel">Not saved yet</span>
+      <span>Space play · arrows step · B blade · Delete ripple · Ctrl/Cmd+Z undo</span>
+      <span id="draftVersion">PECO Anywhere Draft v0.4.0</span>
+    </footer>
+
+    <script src="draft-storage.js"></script>
+    <script src="peco-draft-archive.js"></script>
+    <script src="draft.js"></script>
+  </body>
+</html>

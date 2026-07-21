@@ -70,6 +70,26 @@ button.active {
   background: #20231f;
 }
 
+.workspace-link {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  color: var(--text);
+  background: #20231f;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+.workspace-link:active {
+  background: var(--button-active);
+  border-color: var(--accent);
+}
+
 .danger-action {
   border-color: rgba(239, 106, 85, 0.7);
   color: #ffd7d1;
@@ -2340,6 +2360,7 @@ body.clip-rendering .control-deck > * {
   }
 
   .top-actions button,
+  .top-actions .workspace-link,
   .reviewer-input {
     min-height: 28px;
     height: 28px;
@@ -2350,6 +2371,10 @@ body.clip-rendering .control-deck > * {
   }
 
   .top-actions button {
+    padding: 0 8px;
+  }
+
+  .top-actions .workspace-link {
     padding: 0 8px;
   }
 
