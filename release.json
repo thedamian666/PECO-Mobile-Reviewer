@@ -1,9 +1,8 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "notes": [
-    "Promo Studio adds a camera, microphone, recorder, and storage field check plus a preview-only teleprompter and reusable school/event kits.",
-    "Editable caption cues, wrestling-name corrections, live speech-capture fallback messaging, and revision lineage prepare safe collaboration without enabling cloud uploads."
+    "Open standard .zip and .pecoreview match packages directly; each package still contains project.json and proxy camera angles only."
   ],
   "media_included": false
 }

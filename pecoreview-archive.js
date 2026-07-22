@@ -50,12 +50,12 @@
         return offset;
       }
     }
-    throw new Error("This is not a readable .pecoreview ZIP archive.");
+    throw new Error("This is not a readable PECO review ZIP archive.");
   }
 
   async function readDirectory(file) {
     if (!(file instanceof Blob) || file.size < 22) {
-      throw new Error("The selected .pecoreview file is empty or invalid.");
+      throw new Error("The selected PECO review ZIP is empty or invalid.");
     }
     const tailStart = Math.max(0, file.size - MAX_END_RECORD_BYTES);
     const tail = await readBytes(file.slice(tailStart));
@@ -68,17 +68,17 @@
     const directorySize = end.getUint32(endOffset + 12, true);
     const directoryOffset = end.getUint32(endOffset + 16, true);
     if (diskNumber !== 0 || directoryDisk !== 0 || entriesOnDisk !== entryCount) {
-      throw new Error("Multi-part .pecoreview archives are not supported.");
+      throw new Error("Multi-part PECO review ZIPs are not supported.");
     }
     if (
       entryCount === 0xffff
       || directorySize === 0xffffffff
       || directoryOffset === 0xffffffff
     ) {
-      throw new Error("ZIP64 .pecoreview archives are not supported yet. Export one match per package.");
+      throw new Error("ZIP64 PECO review archives are not supported yet. Export one match per package.");
     }
     if (directoryOffset + directorySize > file.size) {
-      throw new Error("The .pecoreview directory is outside the selected file.");
+      throw new Error("The PECO review ZIP directory is outside the selected file.");
     }
 
     const bytes = await readBytes(file.slice(directoryOffset, directoryOffset + directorySize));
@@ -87,7 +87,7 @@
     let offset = 0;
     while (offset < bytes.length && entries.length < entryCount) {
       if (offset + 46 > bytes.length || view.getUint32(offset, true) !== CENTRAL_SIGNATURE) {
-        throw new Error("The .pecoreview directory is damaged.");
+        throw new Error("The PECO review ZIP directory is damaged.");
       }
       const flags = view.getUint16(offset + 8, true);
       const method = view.getUint16(offset + 10, true);
@@ -99,7 +99,7 @@
       const localHeaderOffset = view.getUint32(offset + 42, true);
       const nextOffset = offset + 46 + filenameLength + extraLength + commentLength;
       if (nextOffset > bytes.length) {
-        throw new Error("A .pecoreview directory entry is truncated.");
+        throw new Error("A PECO review ZIP directory entry is truncated.");
       }
       const name = decodeFilename(bytes.subarray(offset + 46, offset + 46 + filenameLength), flags);
       if (!name.endsWith("/")) {
@@ -223,7 +223,7 @@
     const entries = await readDirectory(file);
     const manifestEntry = entries.find(entry => /(^|\/)(project|manifest)\.json$/i.test(entry.name));
     if (!manifestEntry) {
-      throw new Error("The .pecoreview package does not contain project.json.");
+      throw new Error("The PECO review ZIP does not contain project.json or manifest.json.");
     }
     if (manifestEntry.uncompressedSize > MAX_MANIFEST_BYTES) {
       throw new Error("The package manifest is unexpectedly large.");

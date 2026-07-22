@@ -1,11 +1,10 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.6.0";
-const APP_VERSION_CODE = 32;
+const APP_VERSION = "0.6.1";
+const APP_VERSION_CODE = 33;
 const APP_PATCH_NOTES = Object.freeze([
-  "Promo Studio adds a camera, microphone, recorder, and storage field check plus a preview-only teleprompter and reusable school/event kits.",
-  "Editable caption cues, wrestling-name corrections, live speech-capture fallback messaging, and revision lineage prepare safe collaboration without enabling cloud uploads."
+  "Open standard .zip and .pecoreview match packages directly; each package still contains project.json and proxy camera angles only."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
@@ -568,7 +567,7 @@ async function loadPackageFiles(files) {
     return;
   }
   try {
-    if (files.length === 1 && /\.pecoreview$/i.test(files[0].name)) {
+    if (files.length === 1 && isReviewArchiveFile(files[0])) {
       const archive = window.PecoReviewArchive;
       if (!archive?.readPackage) {
         throw new Error("The browser package reader did not load. Refresh PECO Mobile and try again.");
@@ -598,6 +597,14 @@ async function loadPackageFiles(files) {
   } finally {
     elements.packageInput.value = "";
   }
+}
+
+function isReviewArchiveFile(file) {
+  const name = String(file?.name || "").trim().toLowerCase();
+  const type = String(file?.type || "").trim().toLowerCase();
+  return /\.(pecoreview|zip)$/.test(name)
+    || type === "application/zip"
+    || type === "application/x-zip-compressed";
 }
 
 async function loadManifestFile(file) {
