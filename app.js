@@ -1,8 +1,8 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.6.2";
-const APP_VERSION_CODE = 34;
+const APP_VERSION = "0.6.3";
+const APP_VERSION_CODE = 35;
 const APP_PATCH_NOTES = Object.freeze([
   "Keep Jog, Undo, Redo, and highlight controls visible on phones.",
   "Preview saved highlights in order, suppress native text selection over Program, and offer browser full screen."
@@ -3875,6 +3875,7 @@ async function toggleBrowserFullscreen() {
       if (exit) {
         await exit.call(document);
       }
+      setStatus("Full screen off.");
       return;
     }
 
