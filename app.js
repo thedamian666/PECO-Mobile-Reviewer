@@ -7209,7 +7209,7 @@ function registerServiceWorker() {
     ));
     return;
   }
-  navigator.serviceWorker.register("service-worker.js")
+  navigator.serviceWorker.register("service-worker.js?v=35")
     .then(registration => registration.update())
     .catch(() => {});
 }
