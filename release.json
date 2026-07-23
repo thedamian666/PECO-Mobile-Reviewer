@@ -1,8 +1,9 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "notes": [
-    "Open standard .zip and .pecoreview match packages directly; each package still contains project.json and proxy camera angles only."
+    "Jog, Undo, Redo, and dedicated highlight controls stay visible in the phone layout.",
+    "Program long-press no longer selects page text, saved highlights can play consecutively, and supported browsers can enter full screen."
   ],
   "media_included": false
 }

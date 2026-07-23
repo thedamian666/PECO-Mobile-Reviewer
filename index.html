@@ -35,7 +35,7 @@
           <button class="secondary" id="shortcutsButton" type="button" title="Show keyboard shortcuts">Shortcuts</button>
         </div>
         <div class="toolbar-group output-group" aria-label="Output">
-          <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected clips" disabled>Render</button>
+          <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected highlights" disabled>Render</button>
           <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
           <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
         </div>
@@ -60,7 +60,7 @@
           <div class="skip-feedback hidden" id="skipFeedback" aria-hidden="true"></div>
           <div class="viewer-mobile-tools" aria-label="Mobile viewer options">
             <button id="mobileMenuButton" type="button" aria-label="Open project and edit menu" aria-expanded="false">&#8943;</button>
-            <button id="mobileJogButton" type="button" aria-label="Open playback jogger" aria-controls="mobileJogPanel" aria-expanded="false" disabled>JOG</button>
+            <button id="fullscreenButton" type="button" title="Enter full screen" aria-label="Enter full screen">&#x26F6;</button>
             <button id="gestureHelpButton" type="button" aria-label="Show gesture controls">?</button>
           </div>
           <div class="gesture-coach hidden" id="gestureCoach" role="dialog" aria-label="Gesture controls" tabindex="0">
@@ -68,21 +68,29 @@
             <div class="gesture-coach-grid">
               <span><b>Tap Program</b> Play / pause</span>
               <span><b>Double-tap sides</b> Back / forward 5s</span>
-              <span><b>Hold Program</b> Add a note or clip</span>
+              <span><b>Hold Program</b> Add a note or highlight</span>
               <span><b>Tap a camera</b> Make the cut</span>
               <span><b>Swipe camera row</b> Remove the latest cut</span>
               <span><b>Drag timeline</b> Scrub anywhere</span>
-              <span><b>Tap JOG</b> Shuttle 2x / 4x / 8x</span>
+              <span><b>Shuttle bar</b> Jog at 2x / 4x / 8x</span>
+              <span><b>Full screen</b> Hide supported browser chrome</span>
             </div>
             <small>Tap this guide to close. Use ? to see it again.</small>
           </div>
           <div class="viewer-action-buttons">
-            <button class="viewer-note-button" id="addClipButton" type="button" title="Press once for clip IN and again for clip OUT" disabled>+ Clip</button>
+            <button class="viewer-note-button" id="addClipButton" type="button" title="Press once for highlight IN and again for highlight OUT" disabled>+ Highlight</button>
             <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
           </div>
           <div class="clip-capture-badge hidden" id="clipCaptureBadge">
-            <span id="clipCaptureLabel">Clip IN</span>
-            <button type="button" id="cancelClipCaptureButton" title="Cancel clip IN" aria-label="Cancel clip IN">&times;</button>
+            <span id="clipCaptureLabel">Highlight IN</span>
+            <button type="button" id="cancelClipCaptureButton" title="Cancel highlight IN" aria-label="Cancel highlight IN">&times;</button>
+          </div>
+          <div class="highlight-preview-chrome hidden" id="highlightPreviewChrome" aria-live="polite">
+            <div>
+              <span>Highlights Preview</span>
+              <strong id="highlightPreviewLabel">Highlight 1 of 1</strong>
+            </div>
+            <button type="button" id="stopHighlightPreviewButton">Exit</button>
           </div>
           <div class="viewer-status">
             <span id="activeAngleLabel">No angle</span>
@@ -123,8 +131,8 @@
         <a class="mobile-option workspace-link" href="promo.html">Promo</a>
         <button class="mobile-option" id="mobileSaveStateButton" type="button" disabled>Save</button>
         <button class="mobile-option" id="mobileRemovePackageButton" type="button" hidden>Remove</button>
-        <button class="mobile-option camera-review-only" id="mobileUndoDecisionButton" type="button" title="Undo last edit (Ctrl+Z or Backtick)" aria-keyshortcuts="Control+Z Meta+Z Backquote" disabled>Undo</button>
-        <button class="mobile-option camera-review-only" id="mobileRedoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
+        <button class="mobile-option mobile-essential-option camera-review-only" id="mobileUndoDecisionButton" type="button" title="Undo last edit (Ctrl+Z or Backtick)" aria-keyshortcuts="Control+Z Meta+Z Backquote" disabled>Undo</button>
+        <button class="mobile-option mobile-essential-option camera-review-only" id="mobileRedoDecisionButton" type="button" title="Redo last edit (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" disabled>Redo</button>
         <button class="mobile-option camera-review-only" id="usePreviousAngleButton" type="button" title="Remove this cut and continue the previous camera angle (Q)" aria-keyshortcuts="Q" disabled>Use Previous</button>
         <button class="mobile-option" id="mobileClipToolsButton" type="button" disabled>Render</button>
         <button class="mobile-option" id="mobileShortcutsButton" type="button">Keys</button>
@@ -177,8 +185,18 @@
         </div>
       </div>
 
-      <section class="clip-list-section hidden" id="clipListSection" aria-label="Saved clip ranges">
-        <div class="clip-list-label">Clips <span id="clipCount">0</span></div>
+      <div class="highlight-controls-row" id="highlightControlsRow" aria-label="Highlight In, Out, and preview controls">
+        <div class="highlight-controls-label">
+          <span>Highlights</span>
+          <strong id="highlightCountLabel">0 saved</strong>
+        </div>
+        <button class="secondary" id="markHighlightInButton" type="button" title="Mark highlight IN at the playhead" disabled>Mark IN</button>
+        <button class="secondary" id="markHighlightOutButton" type="button" title="Mark highlight OUT and save the range" disabled>Mark OUT</button>
+        <button class="primary" id="previewHighlightsButton" type="button" title="Play saved highlights in timeline order and skip everything between them" disabled>Play Highlights</button>
+      </div>
+
+      <section class="clip-list-section hidden" id="clipListSection" aria-label="Saved highlight ranges">
+        <div class="clip-list-label">Highlights <span id="clipCount">0</span></div>
         <ol class="mobile-clip-list" id="clipList"></ol>
       </section>
 
@@ -206,8 +224,8 @@
       <button class="secondary" id="clearMarkerSelectionButton" type="button">Close Menu</button>
     </div>
 
-    <div class="clip-selection-menu hidden" id="clipSelectionMenu" role="dialog" aria-live="polite" aria-label="Selected clips">
-      <div class="selection-summary" id="clipSelectionSummary">No clips selected</div>
+    <div class="clip-selection-menu hidden" id="clipSelectionMenu" role="dialog" aria-live="polite" aria-label="Selected highlights">
+      <div class="selection-summary" id="clipSelectionSummary">No highlights selected</div>
       <button class="primary" id="renderSelectedClipsButton" type="button">Render Reel</button>
       <button class="primary danger-action" id="deleteSelectedClipsButton" type="button">Delete</button>
       <button class="secondary" id="clearClipSelectionButton" type="button">Close Menu</button>
@@ -224,7 +242,7 @@
       <div class="render-mode-options" role="group" aria-label="Render content">
         <button class="render-mode-button selected" id="renderFullModeButton" data-render-mode="full" type="button"><strong>Full Review</strong><span>Entire edited program</span></button>
         <button class="render-mode-button" id="renderRangeModeButton" data-render-mode="range" type="button"><strong>In / Out</strong><span>One export range</span></button>
-        <button class="render-mode-button" id="renderReelModeButton" data-render-mode="reel" type="button"><strong>Clip Reel</strong><span>Selected clip tiles</span></button>
+        <button class="render-mode-button" id="renderReelModeButton" data-render-mode="reel" type="button"><strong>Highlights Reel</strong><span>Selected highlight tiles</span></button>
       </div>
       <div class="render-range-controls hidden" id="renderRangeControls">
         <div class="render-range-readout" id="renderRangeLabel">00:00:00:00 to 00:00:00:00</div>
@@ -254,7 +272,7 @@
         <textarea id="markerNoteInput" rows="3" maxlength="1000" placeholder="Add context for the editor"></textarea>
       </label>
       <div class="menu-action-row">
-        <button class="secondary" id="previewClipButton" type="button">Start Clip</button>
+        <button class="secondary" id="previewClipButton" type="button">Mark Highlight IN</button>
         <button class="primary" id="saveMarkerButton" type="button">Add Note</button>
         <button class="secondary" id="closePreviewActionMenuButton" type="button">Close Menu</button>
       </div>
@@ -309,7 +327,7 @@
           <div><kbd>?</kbd><span>Show this reference</span></div>
         </section>
       </div>
-      <p class="shortcut-footnote">Right-click camera cuts, markers, clips, or camera previews for contextual actions. Shortcuts are disabled while typing.</p>
+      <p class="shortcut-footnote">Right-click camera cuts, markers, highlights, or camera previews for contextual actions. Shortcuts are disabled while typing.</p>
     </div>
 
     <div class="note-palette-menu hidden" id="notePaletteMenu" role="dialog" aria-modal="true" aria-label="Customize fast notes">

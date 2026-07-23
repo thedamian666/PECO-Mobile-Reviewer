@@ -1,10 +1,11 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.6.1";
-const APP_VERSION_CODE = 33;
+const APP_VERSION = "0.6.2";
+const APP_VERSION_CODE = 34;
 const APP_PATCH_NOTES = Object.freeze([
-  "Open standard .zip and .pecoreview match packages directly; each package still contains project.json and proxy camera angles only."
+  "Keep Jog, Undo, Redo, and highlight controls visible on phones.",
+  "Preview saved highlights in order, suppress native text selection over Program, and offer browser full screen."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
@@ -105,7 +106,7 @@ const elements = {
   viewerEmpty: document.getElementById("viewerEmpty"),
   skipFeedback: document.getElementById("skipFeedback"),
   mobileMenuButton: document.getElementById("mobileMenuButton"),
-  mobileJogButton: document.getElementById("mobileJogButton"),
+  fullscreenButton: document.getElementById("fullscreenButton"),
   gestureHelpButton: document.getElementById("gestureHelpButton"),
   gestureCoach: document.getElementById("gestureCoach"),
   addClipButton: document.getElementById("addClipButton"),
@@ -113,6 +114,9 @@ const elements = {
   clipCaptureBadge: document.getElementById("clipCaptureBadge"),
   clipCaptureLabel: document.getElementById("clipCaptureLabel"),
   cancelClipCaptureButton: document.getElementById("cancelClipCaptureButton"),
+  highlightPreviewChrome: document.getElementById("highlightPreviewChrome"),
+  highlightPreviewLabel: document.getElementById("highlightPreviewLabel"),
+  stopHighlightPreviewButton: document.getElementById("stopHighlightPreviewButton"),
   activeAngleLabel: document.getElementById("activeAngleLabel"),
   timecodeLabel: document.getElementById("timecodeLabel"),
   timelineSlider: document.getElementById("timelineSlider"),
@@ -198,6 +202,11 @@ const elements = {
   jogReadout: document.getElementById("jogReadout"),
   jogWheel: document.getElementById("jogWheel"),
   jogKnob: document.getElementById("jogKnob"),
+  highlightControlsRow: document.getElementById("highlightControlsRow"),
+  highlightCountLabel: document.getElementById("highlightCountLabel"),
+  markHighlightInButton: document.getElementById("markHighlightInButton"),
+  markHighlightOutButton: document.getElementById("markHighlightOutButton"),
+  previewHighlightsButton: document.getElementById("previewHighlightsButton"),
   clipListSection: document.getElementById("clipListSection"),
   clipList: document.getElementById("clipList"),
   clipCount: document.getElementById("clipCount"),
@@ -301,6 +310,7 @@ const state = {
   jogDrag: null,
   clipCaptureInFrame: null,
   clips: [],
+  highlightPreview: null,
   clipSelectionMode: false,
   selectedClipIds: new Set(),
   selectedClipId: null,
@@ -390,25 +400,33 @@ elements.addClipButton.addEventListener("click", event => {
 elements.cancelClipCaptureButton.addEventListener("pointerdown", event => event.stopPropagation());
 elements.cancelClipCaptureButton.addEventListener("click", event => {
   event.stopPropagation();
-  cancelClipCapture({ status: "Clip IN canceled." });
+  cancelClipCapture({ status: "Highlight IN canceled." });
+});
+elements.markHighlightInButton.addEventListener("click", markHighlightInAtPlayhead);
+elements.markHighlightOutButton.addEventListener("click", markHighlightOutAtPlayhead);
+elements.previewHighlightsButton.addEventListener("click", toggleHighlightPreview);
+elements.stopHighlightPreviewButton.addEventListener("pointerdown", event => event.stopPropagation());
+elements.stopHighlightPreviewButton.addEventListener("click", event => {
+  event.stopPropagation();
+  stopHighlightPreview({ status: "Highlights preview closed." });
 });
 elements.closePreviewActionMenuButton.addEventListener("click", () => closePreviewActionMenu({ status: "Marker menu closed." }));
 elements.previewClipButton.addEventListener("click", () => {
   const capturing = Number.isInteger(state.clipCaptureInFrame);
   closePreviewActionMenu();
   toggleClipCapture();
-  setStatus(capturing ? "Saved clip OUT from the Program gesture menu." : "Clip IN set. Hold Program again to set Clip OUT.");
+  setStatus(capturing ? "Saved highlight OUT from the Program gesture menu." : "Highlight IN set. Hold Program again to mark OUT.");
 });
-for (const button of [elements.mobileMenuButton, elements.mobileJogButton, elements.gestureHelpButton]) {
+for (const button of [elements.mobileMenuButton, elements.fullscreenButton, elements.gestureHelpButton]) {
   button.addEventListener("pointerdown", event => event.stopPropagation());
 }
 elements.mobileMenuButton.addEventListener("click", event => {
   event.stopPropagation();
   setMobileMenuOpen(!document.body.classList.contains("mobile-options-open"));
 });
-elements.mobileJogButton.addEventListener("click", event => {
+elements.fullscreenButton.addEventListener("click", event => {
   event.stopPropagation();
-  setMobileJogOpen(!document.body.classList.contains("mobile-jog-open"));
+  void toggleBrowserFullscreen();
 });
 elements.gestureHelpButton.addEventListener("click", event => {
   event.stopPropagation();
@@ -419,6 +437,11 @@ elements.gestureCoach.addEventListener("click", event => {
   event.stopPropagation();
   hideGestureCoach();
 });
+elements.viewerFrame.addEventListener("contextmenu", suppressViewerNativeInteraction);
+elements.viewerFrame.addEventListener("selectstart", suppressViewerNativeInteraction);
+elements.viewerFrame.addEventListener("dragstart", suppressViewerNativeInteraction);
+document.addEventListener("fullscreenchange", renderFullscreenControl);
+document.addEventListener("webkitfullscreenchange", renderFullscreenControl);
 elements.mobileOptionsRow.addEventListener("click", event => {
   if (event.target.closest("button, a")) {
     setMobileMenuOpen(false);
@@ -966,7 +989,6 @@ function formatBytes(bytes) {
 function resetProject(options = {}) {
   cancelProxyClipRender({ quiet: true });
   pausePlayback();
-  setMobileJogOpen(false);
   clearTimeout(state.stateSaveTimer);
   clearTimeout(state.tapGesture.timer);
   clearTimeout(state.skipFeedbackTimer);
@@ -993,6 +1015,7 @@ function resetProject(options = {}) {
   state.pausedForVisibility = false;
   state.clipCaptureInFrame = null;
   state.clips = [];
+  state.highlightPreview = null;
   state.clipSelectionMode = false;
   state.selectedClipIds.clear();
   state.selectedClipId = null;
@@ -1605,7 +1628,9 @@ function renderAll() {
   renderClipList();
   renderTimeline();
   renderClipCapture();
+  renderHighlightControls();
   renderRenderMenu();
+  renderFullscreenControl();
 }
 
 function renderDecisionEditState() {
@@ -1619,6 +1644,7 @@ function renderDecisionEditState() {
   renderClipList();
   renderTimeline();
   renderClipCapture();
+  renderHighlightControls();
   renderRenderMenu();
   updateAngleActiveState();
 }
@@ -1719,8 +1745,8 @@ function renderTransport() {
   renderSelectionMenu();
   elements.playButton.textContent = state.isPlaying ? "Pause" : "Play";
   elements.mobileMenuButton.disabled = !loaded;
-  elements.mobileJogButton.disabled = !loaded;
   renderClipCapture();
+  renderHighlightControls();
   renderRenderMenu();
 }
 
@@ -2744,6 +2770,7 @@ function renderTimeline() {
   elements.mobileTimelineSlider.value = String(state.timelineFrame);
   elements.viewerEmpty.classList.toggle("hidden", Boolean(angle && proxyAvailable(angle)));
   renderUsePreviousAngleButtonState();
+  renderHighlightPreviewProgress();
 }
 
 function wireMainVideo(options = {}) {
@@ -3497,6 +3524,12 @@ function videoTimeForAngleAtTimelineSeconds(angle, timelineSeconds) {
   return Math.max(0, timelineSeconds + angle.proxySyncOffsetFrames / state.project.fps);
 }
 
+function suppressViewerNativeInteraction(event) {
+  if (event.cancelable) {
+    event.preventDefault();
+  }
+}
+
 function startViewerLongPress(event) {
   if (!isReady() || event.button > 0) {
     return;
@@ -3664,7 +3697,7 @@ function openPreviewActionMenu(frame, options = {}) {
   elements.markerNoteInput.value = marker?.note || "";
   elements.saveMarkerButton.textContent = marker ? "Save Marker" : "Add Marker";
   elements.previewClipButton.hidden = Boolean(marker);
-  elements.previewClipButton.textContent = Number.isInteger(state.clipCaptureInFrame) ? "Set Clip OUT" : "Start Clip";
+  elements.previewClipButton.textContent = Number.isInteger(state.clipCaptureInFrame) ? "Mark Highlight OUT" : "Mark Highlight IN";
   elements.previewClipButton.disabled = !isReady() || Boolean(state.clipRender);
   renderMarkerCategoryButtons();
   elements.previewActionMenu.classList.remove("hidden");
@@ -3816,24 +3849,63 @@ function isMobileReviewLayout() {
   return window.matchMedia(MOBILE_PREVIEW_MEDIA_QUERY).matches;
 }
 
-function setMobileJogOpen(open) {
-  const next = Boolean(open && isMobileReviewLayout() && isReady());
-  if (next) {
+function activeFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function fullscreenRequestMethod() {
+  const root = document.documentElement;
+  return root.requestFullscreen || root.webkitRequestFullscreen || null;
+}
+
+function renderFullscreenControl() {
+  const active = Boolean(activeFullscreenElement());
+  elements.fullscreenButton.classList.toggle("active", active);
+  elements.fullscreenButton.textContent = active ? "\u00d7" : "\u26f6";
+  elements.fullscreenButton.title = active ? "Exit full screen" : "Enter full screen";
+  elements.fullscreenButton.setAttribute("aria-label", active ? "Exit full screen" : "Enter full screen");
+  elements.fullscreenButton.setAttribute("aria-pressed", String(active));
+}
+
+async function toggleBrowserFullscreen() {
+  const active = activeFullscreenElement();
+  try {
+    if (active) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) {
+        await exit.call(document);
+      }
+      return;
+    }
+
+    const request = fullscreenRequestMethod();
+    if (!request) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      setStatus("This browser cannot enter webpage full screen. Use Share > Add to Home Screen, then open PECO from the Home Screen.", true);
+      return;
+    }
+
+    const root = document.documentElement;
+    try {
+      await request.call(root, { navigationUI: "hide" });
+    } catch (error) {
+      if (!(error instanceof TypeError)) {
+        throw error;
+      }
+      await request.call(root);
+    }
     setMobileMenuOpen(false);
     hideGestureCoach();
-  } else if (state.jogDrag || state.shuttleRaf) {
-    endJog();
+    setStatus("Full screen on. Tap \u26f6 again to exit.");
+  } catch (error) {
+    setStatus(`Full screen was blocked: ${error.message || "use your browser menu or Add to Home Screen instead."}`, true);
+  } finally {
+    renderFullscreenControl();
   }
-  document.body.classList.toggle("mobile-jog-open", next);
-  elements.mobileJogButton.setAttribute("aria-expanded", String(next));
-  elements.mobileJogButton.setAttribute("aria-label", next ? "Close playback jogger" : "Open playback jogger");
 }
 
 function setMobileMenuOpen(open) {
   const next = Boolean(open && isMobileReviewLayout() && isReady());
-  if (next) {
-    setMobileJogOpen(false);
-  }
   document.body.classList.toggle("mobile-options-open", next);
   elements.mobileMenuButton.setAttribute("aria-expanded", String(next));
 }
@@ -3846,7 +3918,6 @@ function showGestureCoach(options = {}) {
     return;
   }
   setMobileMenuOpen(false);
-  setMobileJogOpen(false);
   clearTimeout(state.gestureCoachTimer);
   elements.gestureCoach.classList.remove("hidden");
   if (!options.force) {
@@ -4002,8 +4073,15 @@ function playSyncedProgramVideos() {
 }
 
 function pausePlayback(options = {}) {
+  const closedHighlightPreview = Boolean(state.highlightPreview && !options.preserveHighlightPreview);
+  if (closedHighlightPreview) {
+    state.highlightPreview = null;
+  }
   const wasPlaying = state.isPlaying || state.playbackRaf || state.shuttleRaf || !elements.audioMaster.paused;
   if (!wasPlaying) {
+    if (closedHighlightPreview) {
+      renderHighlightControls();
+    }
     return;
   }
   if (state.shuttleRaf) {
@@ -4019,9 +4097,10 @@ function pausePlayback(options = {}) {
   cancelAnimationFrame(state.playbackRaf);
   state.playbackRaf = 0;
   renderTransport();
+  renderHighlightControls();
   if (!options.silent) {
     scheduleProjectStateAutosave();
-    setStatus("Paused.");
+    setStatus(closedHighlightPreview ? "Highlights preview stopped." : "Paused.");
   }
 }
 
@@ -4040,6 +4119,11 @@ function startPlaybackLoop() {
     if (audio && audioAngle) {
       const frame = Math.round(audio.currentTime * state.project.fps - audioAngle.proxySyncOffsetFrames);
       const timelineFrame = clampFrame(frame);
+      const highlightSegment = activeHighlightPreviewSegment();
+      if (highlightSegment && timelineFrame >= highlightSegment.outFrame) {
+        void advanceHighlightPreviewSegment();
+        return;
+      }
       if (timelineFrame >= maxFrame()) {
         pausePlayback();
         setTimelineFrame(maxFrame(), { syncVideos: true });
@@ -4642,10 +4726,6 @@ function closeActiveOverlay() {
     setMobileMenuOpen(false);
     return true;
   }
-  if (document.body.classList.contains("mobile-jog-open")) {
-    setMobileJogOpen(false);
-    return true;
-  }
   if (!elements.contextMenu.classList.contains("hidden")) {
     closeContextMenu();
     return true;
@@ -4817,20 +4897,40 @@ function handleKeydown(event) {
 }
 
 function toggleClipCapture() {
+  if (Number.isInteger(state.clipCaptureInFrame)) {
+    markHighlightOutAtPlayhead();
+  } else {
+    markHighlightInAtPlayhead();
+  }
+}
+
+function markHighlightInAtPlayhead() {
+  if (!isReady() || state.clipRender) {
+    return;
+  }
+  if (state.highlightPreview) {
+    stopHighlightPreview({ quiet: true });
+  }
+  exitClipSelection();
+  const moved = Number.isInteger(state.clipCaptureInFrame);
+  state.clipCaptureInFrame = state.timelineFrame;
+  renderClipCapture();
+  renderClipList();
+  renderHighlightControls();
+  setStatus(`${moved ? "Moved" : "Marked"} highlight IN at ${clipFrameTimecode(state.clipCaptureInFrame)}. Mark OUT to save it.`);
+}
+
+function markHighlightOutAtPlayhead() {
   if (!isReady() || state.clipRender) {
     return;
   }
   if (!Number.isInteger(state.clipCaptureInFrame)) {
-    exitClipSelection();
-    state.clipCaptureInFrame = state.timelineFrame;
-    renderClipCapture();
-    renderClipList();
-    setStatus(`Clip IN ${clipFrameTimecode(state.clipCaptureInFrame)}. Press + Clip again for OUT.`);
+    setStatus("Mark highlight IN first.", true);
     return;
   }
   const outFrame = state.timelineFrame;
   if (outFrame <= state.clipCaptureInFrame) {
-    setStatus("Clip OUT must be after Clip IN.", true);
+    setStatus("Highlight OUT must be after highlight IN.", true);
     return;
   }
   const clip = {
@@ -4845,7 +4945,7 @@ function toggleClipCapture() {
   state.clipCaptureInFrame = null;
   scheduleProjectStateAutosave();
   renderAll();
-  setStatus(`Saved clip ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
+  setStatus(`Saved highlight ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
 }
 
 function cancelClipCapture(options = {}) {
@@ -4855,6 +4955,7 @@ function cancelClipCapture(options = {}) {
   state.clipCaptureInFrame = null;
   renderClipCapture();
   renderClipList();
+  renderHighlightControls();
   if (options.status) {
     setStatus(options.status);
   }
@@ -4863,14 +4964,164 @@ function cancelClipCapture(options = {}) {
 function renderClipCapture() {
   const capturing = Number.isInteger(state.clipCaptureInFrame);
   elements.addClipButton.disabled = !isReady() || Boolean(state.clipRender);
-  elements.addClipButton.textContent = capturing ? "Set Clip OUT" : "+ Clip";
+  elements.addClipButton.textContent = capturing ? "Mark Highlight OUT" : "+ Highlight";
   elements.addClipButton.classList.toggle("capturing", capturing);
-  elements.previewClipButton.textContent = capturing ? "Set Clip OUT" : "Start Clip";
+  elements.previewClipButton.textContent = capturing ? "Mark Highlight OUT" : "Mark Highlight IN";
   elements.previewClipButton.disabled = !isReady() || Boolean(state.clipRender);
   elements.clipCaptureBadge.classList.toggle("hidden", !capturing);
   elements.clipCaptureLabel.textContent = capturing
-    ? `Clip IN ${clipFrameTimecode(state.clipCaptureInFrame)}`
-    : "Clip IN";
+    ? `Highlight IN ${clipFrameTimecode(state.clipCaptureInFrame)}`
+    : "Highlight IN";
+}
+
+function highlightPreviewSegments() {
+  return state.clips
+    .slice()
+    .sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id))
+    .map(clip => ({ id: clip.id, inFrame: clip.inFrame, outFrame: clip.outFrame }));
+}
+
+function activeHighlightPreviewSegment() {
+  const preview = state.highlightPreview;
+  return preview?.segments?.[preview.segmentIndex] || null;
+}
+
+function renderHighlightControls() {
+  const loaded = isReady();
+  const capturing = Number.isInteger(state.clipCaptureInFrame);
+  const previewing = Boolean(state.highlightPreview);
+  const count = state.clips.length;
+  elements.highlightCountLabel.textContent = `${count} saved`;
+  elements.markHighlightInButton.disabled = !loaded || Boolean(state.clipRender) || previewing;
+  elements.markHighlightOutButton.disabled = !loaded || Boolean(state.clipRender) || previewing || !capturing;
+  elements.markHighlightInButton.classList.toggle("active", capturing);
+  elements.markHighlightOutButton.classList.toggle("active", capturing);
+  elements.previewHighlightsButton.disabled = !loaded || Boolean(state.clipRender) || count === 0;
+  elements.previewHighlightsButton.textContent = previewing ? "Stop Highlights" : "Play Highlights";
+  elements.previewHighlightsButton.classList.toggle("active", previewing);
+  elements.highlightPreviewChrome.classList.toggle("hidden", !previewing);
+  elements.viewerFrame.classList.toggle("highlight-preview-active", previewing);
+  renderHighlightPreviewProgress();
+}
+
+function renderHighlightPreviewProgress() {
+  const preview = state.highlightPreview;
+  const segment = activeHighlightPreviewSegment();
+  if (!preview || !segment) {
+    elements.highlightPreviewLabel.textContent = "No highlight playing";
+    return;
+  }
+  const current = Math.max(0, Math.min(segment.outFrame - segment.inFrame, state.timelineFrame - segment.inFrame));
+  const duration = Math.max(1, segment.outFrame - segment.inFrame);
+  const percent = Math.round(current / duration * 100);
+  elements.highlightPreviewLabel.textContent = `Highlight ${preview.segmentIndex + 1} of ${preview.segments.length} \u2022 ${percent}%`;
+}
+
+function toggleHighlightPreview() {
+  if (state.highlightPreview) {
+    stopHighlightPreview({ status: "Highlights preview stopped." });
+    return;
+  }
+  void startHighlightPreview();
+}
+
+async function startHighlightPreview() {
+  if (!isReady() || state.clipRender) {
+    return;
+  }
+  const segments = highlightPreviewSegments();
+  if (!segments.length) {
+    setStatus("Mark at least one highlight IN and OUT before previewing.", true);
+    return;
+  }
+  pausePlayback({ silent: true });
+  state.highlightPreview = {
+    segments,
+    segmentIndex: 0,
+    transitioning: false
+  };
+  renderHighlightControls();
+  await playHighlightPreviewSegment(0);
+}
+
+async function playHighlightPreviewSegment(index) {
+  const preview = state.highlightPreview;
+  const segment = preview?.segments?.[index];
+  if (!preview || !segment) {
+    return;
+  }
+  preview.segmentIndex = index;
+  preview.transitioning = true;
+  try {
+    await prepareClipMediaAtFrame(segment.inFrame);
+    if (state.highlightPreview !== preview) {
+      return;
+    }
+    state.isPlaying = true;
+    renderTransport();
+    renderHighlightControls();
+    await playSyncedProgramVideos();
+    if (state.highlightPreview !== preview) {
+      pausePlayback({ silent: true });
+      return;
+    }
+    const audio = ensureAudioMaster();
+    const audioAngle = audioMasterAngle();
+    const postPlaySeeks = [...state.programVideos.values()].map(entry => {
+      const angle = angleById(entry.angleId);
+      return angle ? seekVideoElementToTimeline(entry.video, angle) : Promise.resolve();
+    });
+    if (audio && audioAngle) {
+      postPlaySeeks.push(seekVideoElementToTimeline(audio, audioAngle));
+    }
+    await Promise.all(postPlaySeeks);
+    if (state.highlightPreview !== preview) {
+      pausePlayback({ silent: true });
+      return;
+    }
+    preview.transitioning = false;
+    applyPlaybackResourcePolicy({ play: true });
+    startPlaybackLoop();
+    renderTransport();
+    renderHighlightControls();
+    setStatus(`Highlights Preview ${index + 1} of ${preview.segments.length}.`);
+  } catch (error) {
+    if (state.highlightPreview === preview) {
+      stopHighlightPreview({ quiet: true });
+      setStatus(`Highlights preview blocked: ${error.message}`, true);
+    }
+  }
+}
+
+async function advanceHighlightPreviewSegment() {
+  const preview = state.highlightPreview;
+  if (!preview || preview.transitioning) {
+    return;
+  }
+  preview.transitioning = true;
+  pausePlayback({ silent: true, preserveHighlightPreview: true });
+  const nextIndex = preview.segmentIndex + 1;
+  if (nextIndex >= preview.segments.length) {
+    state.highlightPreview = null;
+    renderHighlightControls();
+    scheduleProjectStateAutosave();
+    setStatus(`Highlights preview complete. Played ${preview.segments.length} highlight${preview.segments.length === 1 ? "" : "s"}.`);
+    return;
+  }
+  await playHighlightPreviewSegment(nextIndex);
+}
+
+function stopHighlightPreview(options = {}) {
+  if (!state.highlightPreview) {
+    return;
+  }
+  pausePlayback({ silent: true, preserveHighlightPreview: true });
+  state.highlightPreview = null;
+  renderHighlightControls();
+  scheduleProjectStateAutosave();
+  if (options.status && !options.quiet) {
+    setStatus(options.status);
+  }
 }
 
 function renderClipList() {

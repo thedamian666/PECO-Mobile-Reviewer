@@ -183,6 +183,10 @@ button.active {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 12px 28px var(--shadow);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .viewer-frame video {
@@ -191,6 +195,19 @@ button.active {
   display: block;
   object-fit: contain;
   background: #050604;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.viewer-frame img,
+.viewer-frame .viewer-empty,
+.viewer-frame .viewer-status,
+.viewer-frame .skip-feedback,
+.viewer-frame .gesture-coach {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .program-video-stack {
@@ -3082,6 +3099,7 @@ body.clip-rendering .control-deck > * {
   grid-template-areas:
     "transport options jog"
     "quicknotes quicknotes quicknotes"
+    "highlights highlights highlights"
     "status status status"
     "clips clips clips"
     "notes notes notes"
@@ -3312,6 +3330,7 @@ body.clip-rendering .control-deck > * {
       "quicknotes"
       "transport"
       "jog"
+      "highlights"
       "status"
       "clips"
       "notes"
@@ -3433,12 +3452,13 @@ body.clip-rendering .control-deck > * {
   }
 
   body.notes-only-mode .control-deck {
-    grid-template-areas:
-      "options"
-      "quicknotes"
-      "transport"
-      "jog"
-      "status"
+      grid-template-areas:
+        "options"
+        "quicknotes"
+        "transport"
+        "jog"
+        "highlights"
+        "status"
       "clips"
       "notes"
       "buffer";
@@ -3653,6 +3673,7 @@ body.clip-rendering .control-deck > * {
     grid-template-areas:
       "transport options jog"
       "quicknotes quicknotes quicknotes"
+      "highlights highlights highlights"
       "clips clips clips"
       "notes notes notes"
       "decisions decisions decisions"
@@ -4087,5 +4108,324 @@ body.clip-rendering .control-deck > * {
 
   .gesture-coach-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Browser release controls: persistent phone essentials, fullscreen, and highlights. */
+html:fullscreen,
+html:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+}
+
+@media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
+  .viewer-mobile-tools #fullscreenButton {
+    color: #dfff9b;
+  }
+
+  .viewer-mobile-tools #fullscreenButton.active {
+    border-color: rgba(163, 230, 53, 0.9);
+    background: rgba(39, 66, 25, 0.94);
+  }
+
+  /* Jog, Undo, and Redo are timeline essentials, not More-menu options. */
+  .jog-row {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+    justify-self: stretch;
+    align-self: stretch;
+    min-width: 0;
+    min-height: 34px;
+    height: 34px;
+    margin: 0;
+    padding: 2px 5px;
+    display: grid !important;
+    grid-area: jog;
+    grid-template-columns: clamp(44px, 14vw, 54px) minmax(0, 1fr);
+    gap: 4px;
+    contain: layout;
+    overflow: hidden;
+    border: 1px solid rgba(163, 230, 53, 0.48);
+    border-radius: 7px;
+    background: #101410;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .jog-label {
+    min-width: 0;
+    font-size: 9px;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .jog-label strong {
+    max-width: 100%;
+    overflow: hidden;
+    color: #dfff9b;
+    font-size: 8px;
+    text-overflow: ellipsis;
+  }
+
+  .jog-wheel {
+    min-width: 0;
+    height: 28px;
+    border-radius: 5px;
+  }
+
+  .jog-scale {
+    left: 6px;
+    right: 6px;
+    top: 1px;
+    display: grid;
+    font-size: 6px;
+  }
+
+  .jog-track {
+    left: 8px;
+    right: 8px;
+    top: 18px;
+    height: 3px;
+  }
+
+  .jog-center {
+    top: 9px;
+    bottom: 2px;
+  }
+
+  .jog-knob {
+    top: 8px;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
+  }
+
+  .mobile-options-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    overflow: visible;
+  }
+
+  body:not(.mobile-options-open) .mobile-options-row > .mobile-option:not(.mobile-essential-option) {
+    display: none !important;
+  }
+
+  body:not(.mobile-options-open) .mobile-options-row > .mobile-essential-option {
+    display: flex !important;
+    min-width: 0;
+    min-height: 36px;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* Direct, source-safe highlight marking and same-screen highlights preview. */
+.highlight-preview-chrome {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  z-index: 18;
+  min-width: min(310px, calc(100% - 152px));
+  padding: 6px 7px 6px 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(214, 165, 69, 0.9);
+  border-radius: 10px;
+  color: #fff7d9;
+  background: rgba(25, 19, 6, 0.9);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+  backdrop-filter: blur(6px);
+}
+
+.highlight-preview-chrome.hidden {
+  display: none;
+}
+
+.highlight-preview-chrome > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.highlight-preview-chrome span {
+  color: #ffd56c;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.highlight-preview-chrome strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.highlight-preview-chrome button {
+  min-height: 30px;
+  padding: 0 9px;
+  flex: 0 0 auto;
+  border-color: rgba(255, 213, 108, 0.5);
+  background: #30250c;
+  font-size: 10px;
+}
+
+.viewer-frame.highlight-preview-active {
+  box-shadow: inset 0 0 0 2px rgba(255, 207, 47, 0.88);
+}
+
+.highlight-controls-row {
+  grid-area: highlights;
+  min-width: 0;
+  min-height: 38px;
+  padding: 3px 4px;
+  display: grid;
+  grid-template-columns: minmax(78px, auto) repeat(3, minmax(82px, 1fr));
+  gap: 4px;
+  align-items: stretch;
+  border: 1px solid #30382e;
+  border-radius: 8px;
+  background: #141814;
+}
+
+.highlight-controls-label {
+  min-width: 0;
+  padding: 2px 6px;
+  display: grid;
+  align-content: center;
+  border-left: 3px solid #ffcf2f;
+  color: #f5f5f5;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.highlight-controls-label span {
+  color: #ffdc67;
+  font-weight: 850;
+}
+
+.highlight-controls-label strong {
+  overflow: hidden;
+  color: #aeb7aa;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.highlight-controls-row button {
+  min-width: 0;
+  min-height: 32px;
+  height: auto;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.highlight-controls-row button.active {
+  border-color: #ffcf2f;
+  color: #fff5c5;
+  background: #47370d;
+}
+
+@media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
+  .highlight-preview-chrome {
+    top: 7px;
+    min-width: min(260px, calc(100% - 132px));
+  }
+
+  .highlight-controls-row {
+    min-height: 40px;
+    padding: 2px;
+    grid-template-columns: minmax(64px, 0.72fr) repeat(2, minmax(62px, 0.8fr)) minmax(94px, 1.25fr);
+    gap: 2px;
+  }
+
+  .highlight-controls-row button {
+    min-height: 36px;
+    padding: 2px 4px;
+    font-size: 10px;
+  }
+}
+
+@media (max-height: 560px) and (pointer: coarse) and (orientation: landscape) {
+  body:not(.notes-only-mode):not(.mobile-options-open) .mobile-angle-preview-grid {
+    grid-row: 1 / 8;
+  }
+
+  body:not(.notes-only-mode):not(.mobile-options-open) .mobile-options-row {
+    grid-column: 1;
+    grid-row: 2;
+    width: 20%;
+    min-height: 36px;
+    height: 36px;
+    padding: 1px;
+    grid-auto-rows: 34px;
+  }
+
+  body:not(.notes-only-mode):not(.mobile-options-open) .jog-row {
+    grid-column: 1;
+    grid-row: 2;
+    width: 35%;
+    max-width: none;
+    min-width: 0;
+    min-height: 36px;
+    height: 36px;
+    margin-left: 20%;
+    padding: 1px 6px;
+    grid-template-columns: minmax(62px, 82px) minmax(0, 1fr);
+  }
+
+  .highlight-controls-row {
+    grid-column: 1;
+    grid-row: 2;
+    width: 45%;
+    min-height: 36px;
+    height: 36px;
+    margin-left: 55%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .highlight-controls-label {
+    display: none;
+  }
+
+  body:not(.notes-only-mode):not(.mobile-options-open) .quick-note-palette {
+    display: none;
+  }
+
+  .status-line {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .clip-list-section {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .mobile-marker-list:not(:empty) {
+    grid-column: 1;
+    grid-row: 5;
+  }
+
+  .mobile-decision-list {
+    grid-column: 1;
+    grid-row: 6;
+  }
+
+  .mobile-timeline-row {
+    grid-column: 1;
+    grid-row: 7;
   }
 }
