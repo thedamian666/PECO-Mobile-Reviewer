@@ -9,7 +9,7 @@
     <title>PECO Mobile Reviewer</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/peco-mobile-180.png">
-    <link rel="stylesheet" href="styles.css?v=36">
+    <link rel="stylesheet" href="styles.css?v=37">
   </head>
   <body>
     <header class="topbar">
@@ -208,7 +208,10 @@
           <div class="shorts-rail" id="shortsRail" aria-hidden="true"></div>
           <input class="mobile-timeline-slider" id="mobileTimelineSlider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Full timeline scrubber">
         </div>
-        <button class="secondary next-short-boundary" id="nextShortBoundaryButton" type="button" disabled>Next IN/OUT</button>
+        <div class="short-boundary-nav" role="group" aria-label="Jump between Short boundaries">
+          <button class="secondary short-boundary" id="previousShortBoundaryButton" type="button" aria-label="Previous IN/OUT" disabled><span class="previous-short-long" aria-hidden="true">Previous</span><span class="previous-short-compact" aria-hidden="true">Prev</span> IN/OUT</button>
+          <button class="secondary short-boundary" id="nextShortBoundaryButton" type="button" disabled>Next IN/OUT</button>
+        </div>
         <span id="shortBoundaryAnnouncement" class="shorts-sr-only" role="status"></span>
       </div>
       <div id="mobileEpisodeMarkersAnchor" hidden></div>
@@ -428,6 +431,6 @@
     <script src="browser-storage.js"></script>
     <script src="review-workflow.js"></script>
     <script src="vendor/webm-muxer/webm-muxer.js"></script>
-    <script src="app.js?v=36"></script>
+    <script src="app.js?v=37"></script>
   </body>
 </html>

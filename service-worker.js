@@ -1,9 +1,9 @@
 const CACHE_PREFIX = "peco-mobile-multicam-shell-";
-const CACHE_NAME = `${CACHE_PREFIX}v36`;
+const CACHE_NAME = `${CACHE_PREFIX}v37`;
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=36",
+  "./styles.css?v=37",
   "./pecoreview-archive.js",
   "./browser-storage.js",
   "./review-workflow.js",
@@ -18,7 +18,7 @@ const APP_SHELL = [
   "./promo-storage.js",
   "./promo.js",
   "./vendor/webm-muxer/webm-muxer.js",
-  "./app.js?v=36",
+  "./app.js?v=37",
   "./manifest.webmanifest",
   "./icons/peco-mobile.svg",
   "./icons/peco-mobile-180.png",

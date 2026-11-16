@@ -1,8 +1,8 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "notes": [
-    "Saved Shorts have a brighter scrubber overlay and one control to jump to the next IN or OUT.",
+    "Jump to the previous or next saved Short IN or OUT without leaving the timeline.",
     "Desktop places the editable Shorts beside the video, with secondary options in More. Episode markers are labeled separately as references."
   ],
   "media_included": false

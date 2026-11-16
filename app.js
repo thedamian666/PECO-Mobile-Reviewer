@@ -1,10 +1,10 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.6.4";
-const APP_VERSION_CODE = 36;
+const APP_VERSION = "0.6.5";
+const APP_VERSION_CODE = 37;
 const APP_PATCH_NOTES = Object.freeze([
-  "See your Shorts on the timeline and jump to the next IN or OUT.",
+  "Jump forward or backward between your Shorts’ IN and OUT points.",
   "Use a compact toolbar and side-by-side Shorts on desktop, with simpler controls on phones."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
@@ -215,6 +215,7 @@ const elements = {
   markHighlightOutButton: document.getElementById("markHighlightOutButton"),
   previewHighlightsButton: document.getElementById("previewHighlightsButton"),
   shortsRail: document.getElementById("shortsRail"),
+  previousShortBoundaryButton: document.getElementById("previousShortBoundaryButton"),
   nextShortBoundaryButton: document.getElementById("nextShortBoundaryButton"),
   shortBoundaryAnnouncement: document.getElementById("shortBoundaryAnnouncement"),
   episodeMarkers: document.getElementById("episodeMarkers"),
@@ -439,7 +440,8 @@ elements.cancelClipCaptureButton.addEventListener("click", event => {
 elements.markHighlightInButton.addEventListener("click", markHighlightInAtPlayhead);
 elements.markHighlightOutButton.addEventListener("click", markHighlightOutAtPlayhead);
 elements.previewHighlightsButton.addEventListener("click", toggleHighlightPreview);
-elements.nextShortBoundaryButton.addEventListener("click", jumpToNextShortBoundary);
+elements.previousShortBoundaryButton.addEventListener("click", () => jumpToShortBoundary(-1));
+elements.nextShortBoundaryButton.addEventListener("click", () => jumpToShortBoundary(1));
 elements.stopHighlightPreviewButton.addEventListener("pointerdown", event => event.stopPropagation());
 elements.stopHighlightPreviewButton.addEventListener("click", event => {
   event.stopPropagation();
@@ -5266,6 +5268,11 @@ function nextShortBoundaryIndex(boundaries, frame) {
   return low;
 }
 
+function previousShortBoundaryIndex(boundaries, frame, nextIndex = nextShortBoundaryIndex(boundaries, frame)) {
+  const candidate = nextIndex - 1;
+  return boundaries[candidate]?.frame === frame ? candidate - 1 : candidate;
+}
+
 function renderShortsRail() {
   const lastFrame = maxFrame();
   const clips = state.project ? state.clips.filter(clip => isCompleteShort(clip, lastFrame)) : [];
@@ -5305,26 +5312,36 @@ function updateShortsTimelinePosition() {
     rail.interval = interval;
   }
   const next = rail.boundaries[interval];
-  const button = elements.nextShortBoundaryButton;
-  const label = !next && rail.boundaries.length ? "No later IN/OUT" : "Next IN/OUT";
-  if (button.textContent !== label) button.textContent = label;
-  const disabled = !next || !state.project || !isReady() || Boolean(state.clipRender);
+  const previous = rail.boundaries[previousShortBoundaryIndex(rail.boundaries, state.timelineFrame, interval)];
+  const notReady = !state.project || !isReady() || Boolean(state.clipRender);
+  const nextButton = elements.nextShortBoundaryButton;
+  const nextLabel = !next && rail.boundaries.length ? "No later IN/OUT" : "Next IN/OUT";
+  if (nextButton.textContent !== nextLabel) nextButton.textContent = nextLabel;
+  updateShortBoundaryButton(nextButton, next, "next", "after", notReady, rail.boundaries.length);
+  updateShortBoundaryButton(elements.previousShortBoundaryButton, previous, "previous", "before", notReady, rail.boundaries.length);
+}
+
+function updateShortBoundaryButton(button, boundary, direction, side, notReady, count) {
+  const disabled = !boundary || notReady;
   if (button.disabled !== disabled) button.disabled = disabled;
-  const title = next ? `Go to next Short ${next.label} at ${clipFrameTimecode(next.frame)}`
-    : rail.boundaries.length ? "No Short boundary after the playhead. Scrub back to jump again."
+  const title = boundary ? `Go to ${direction} Short ${boundary.label} at ${clipFrameTimecode(boundary.frame)}`
+    : count ? `No Short boundary ${side} the playhead. Scrub to jump again.`
       : "Save a Short to jump between its boundaries.";
   if (button.title !== title) button.title = title;
 }
 
-function jumpToNextShortBoundary() {
+function jumpToShortBoundary(direction) {
   if (!isReady() || state.clipRender) return;
   const boundaries = state.shortsRail.boundaries;
-  const next = boundaries[nextShortBoundaryIndex(boundaries, state.timelineFrame)];
-  if (!next) return;
+  const index = direction < 0
+    ? previousShortBoundaryIndex(boundaries, state.timelineFrame)
+    : nextShortBoundaryIndex(boundaries, state.timelineFrame);
+  const target = boundaries[index];
+  if (!target) return;
   stopHighlightPreview({ quiet: true });
   pausePlayback({ silent: true });
-  setTimelineFrame(next.frame, { syncVideos: true, persist: true });
-  const message = `Short ${next.label} · ${clipFrameTimecode(next.frame)}`;
+  setTimelineFrame(target.frame, { syncVideos: true, persist: true });
+  const message = `Short ${target.label} · ${clipFrameTimecode(target.frame)}`;
   elements.shortBoundaryAnnouncement.textContent = message;
   setStatus(message);
 }
@@ -7417,7 +7434,7 @@ function registerServiceWorker() {
     ));
     return;
   }
-  navigator.serviceWorker.register("service-worker.js?v=36")
+  navigator.serviceWorker.register("service-worker.js?v=37")
     .then(registration => registration.update())
     .catch(() => {});
 }

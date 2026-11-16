@@ -4493,8 +4493,15 @@ html:-webkit-full-screen {
 
 .shorts-rail-tick.joint { width: 3px; }
 
-.next-short-boundary {
-  min-width: 106px;
+.short-boundary-nav {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.previous-short-compact { display: none; }
+
+.short-boundary {
+  min-width: 0;
   min-height: 36px;
   padding: 3px 6px;
   color: #fff3a9;
@@ -4547,7 +4554,10 @@ html:-webkit-full-screen {
 }
 
 @media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
-  .next-short-boundary { min-height: 44px; }
+  .short-boundary-nav { gap: 3px; }
+  .short-boundary { min-height: 44px; padding-inline: 5px; font-size: 10px; }
+  .previous-short-long { display: none; }
+  .previous-short-compact { display: inline; }
   .episode-markers summary { min-height: 34px; }
 }
 
@@ -4679,7 +4689,7 @@ html:-webkit-full-screen {
   }
 
   .desktop-shorts-layout .episode-markers { flex: 0 0 auto; }
-  .desktop-shorts-layout .next-short-boundary { min-height: 30px; }
+  .desktop-shorts-layout .short-boundary { min-height: 30px; }
 }
 
 @media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
