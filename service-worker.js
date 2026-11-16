@@ -1,8 +1,9 @@
-const CACHE_NAME = "peco-mobile-multicam-shell-v35";
+const CACHE_PREFIX = "peco-mobile-multicam-shell-";
+const CACHE_NAME = `${CACHE_PREFIX}v36`;
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=35",
+  "./styles.css?v=36",
   "./pecoreview-archive.js",
   "./browser-storage.js",
   "./review-workflow.js",
@@ -17,7 +18,7 @@ const APP_SHELL = [
   "./promo-storage.js",
   "./promo.js",
   "./vendor/webm-muxer/webm-muxer.js",
-  "./app.js?v=35",
+  "./app.js?v=36",
   "./manifest.webmanifest",
   "./icons/peco-mobile.svg",
   "./icons/peco-mobile-180.png",
@@ -33,7 +34,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });

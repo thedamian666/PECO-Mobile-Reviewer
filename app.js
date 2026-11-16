@@ -1,11 +1,11 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.6.3";
-const APP_VERSION_CODE = 35;
+const APP_VERSION = "0.6.4";
+const APP_VERSION_CODE = 36;
 const APP_PATCH_NOTES = Object.freeze([
-  "Keep Jog, Undo, Redo, and highlight controls visible on phones.",
-  "Preview saved highlights in order, suppress native text selection over Program, and offer browser full screen."
+  "See your Shorts on the timeline and jump to the next IN or OUT.",
+  "Use a compact toolbar and side-by-side Shorts on desktop, with simpler controls on phones."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
@@ -94,6 +94,13 @@ const elements = {
   exportButton: document.getElementById("exportButton"),
   saveServerButton: document.getElementById("saveServerButton"),
   reviewerInput: document.getElementById("reviewerInput"),
+  reviewMore: document.getElementById("reviewMore"),
+  desktopShortsDock: document.getElementById("desktopShortsDock"),
+  mobileShortsAnchor: document.getElementById("mobileShortsAnchor"),
+  mobileEpisodeMarkersAnchor: document.getElementById("mobileEpisodeMarkersAnchor"),
+  shortsEmpty: document.getElementById("shortsEmpty"),
+  viewerShortCaptureAnchor: document.getElementById("viewerShortCaptureAnchor"),
+  phoneShortCaptureAnchor: document.getElementById("phoneShortCaptureAnchor"),
   reviewSetupButton: document.getElementById("reviewSetupButton"),
   collaborationLine: document.getElementById("collaborationLine"),
   packageInput: document.getElementById("packageInput"),
@@ -207,6 +214,12 @@ const elements = {
   markHighlightInButton: document.getElementById("markHighlightInButton"),
   markHighlightOutButton: document.getElementById("markHighlightOutButton"),
   previewHighlightsButton: document.getElementById("previewHighlightsButton"),
+  shortsRail: document.getElementById("shortsRail"),
+  nextShortBoundaryButton: document.getElementById("nextShortBoundaryButton"),
+  shortBoundaryAnnouncement: document.getElementById("shortBoundaryAnnouncement"),
+  episodeMarkers: document.getElementById("episodeMarkers"),
+  episodeMarkerList: document.getElementById("episodeMarkerList"),
+  episodeMarkerCount: document.getElementById("episodeMarkerCount"),
   clipListSection: document.getElementById("clipListSection"),
   clipList: document.getElementById("clipList"),
   clipCount: document.getElementById("clipCount"),
@@ -310,6 +323,8 @@ const state = {
   jogDrag: null,
   clipCaptureInFrame: null,
   clips: [],
+  shortsRail: { key: null, boundaries: [], ranges: [], interval: -1 },
+  episodeMarkerReference: null,
   highlightPreview: null,
   clipSelectionMode: false,
   selectedClipIds: new Set(),
@@ -344,6 +359,25 @@ const state = {
   }
 };
 
+const desktopShortsQuery = window.matchMedia("(min-width: 900px) and (min-height: 561px) and (pointer: fine)");
+const phoneShortsQuery = window.matchMedia(MOBILE_PREVIEW_MEDIA_QUERY);
+const onShortsLayout = () => {
+  if (syncShortsLayout()) renderClipList();
+};
+for (const query of [desktopShortsQuery, phoneShortsQuery]) {
+  if (query.addEventListener) query.addEventListener("change", onShortsLayout);
+  else query.addListener(onShortsLayout);
+}
+syncShortsLayout();
+elements.reviewMore.addEventListener("click", event => {
+  const action = event.target.closest("button, a");
+  if (action && !action.disabled) elements.reviewMore.open = false;
+});
+document.addEventListener("pointerdown", event => {
+  if (elements.reviewMore.open && !elements.reviewMore.contains(event.target)) {
+    elements.reviewMore.open = false;
+  }
+});
 elements.loadPackageButton.addEventListener("click", openPackageImport);
 elements.emptyOpenReviewButton.addEventListener("pointerdown", event => event.stopPropagation());
 elements.emptyOpenReviewButton.addEventListener("click", event => {
@@ -405,6 +439,7 @@ elements.cancelClipCaptureButton.addEventListener("click", event => {
 elements.markHighlightInButton.addEventListener("click", markHighlightInAtPlayhead);
 elements.markHighlightOutButton.addEventListener("click", markHighlightOutAtPlayhead);
 elements.previewHighlightsButton.addEventListener("click", toggleHighlightPreview);
+elements.nextShortBoundaryButton.addEventListener("click", jumpToNextShortBoundary);
 elements.stopHighlightPreviewButton.addEventListener("pointerdown", event => event.stopPropagation());
 elements.stopHighlightPreviewButton.addEventListener("click", event => {
   event.stopPropagation();
@@ -1616,6 +1651,26 @@ function handlePlaybackVisibilityChange() {
   }
 }
 
+function syncShortsLayout() {
+  const desktop = desktopShortsQuery.matches;
+  const phone = phoneShortsQuery.matches;
+  const isDocked = elements.clipListSection.parentElement === elements.desktopShortsDock;
+  const captureAnchor = phone ? elements.phoneShortCaptureAnchor : elements.viewerShortCaptureAnchor;
+  document.body.classList.toggle("desktop-shorts-layout", desktop);
+  if (elements.addClipButton.previousElementSibling !== captureAnchor) {
+    captureAnchor.after(elements.addClipButton);
+  }
+  if (desktop === isDocked) return false;
+  if (desktop) {
+    elements.desktopShortsDock.append(elements.clipListSection, elements.episodeMarkers);
+  } else {
+    elements.mobileShortsAnchor.after(elements.clipListSection);
+    elements.mobileEpisodeMarkersAnchor.after(elements.episodeMarkers);
+    elements.reviewMore.open = false;
+  }
+  return true;
+}
+
 function renderAll() {
   renderReviewMode();
   renderProjectLine();
@@ -2439,14 +2494,62 @@ function renderMarkerCategoryButtons() {
 }
 
 function renderMarkerList() {
-  renderMarkerListInto(elements.markerList);
-  renderMarkerListInto(elements.mobileMarkerList);
-  elements.markerCount.textContent = String(state.markers.length);
+  const imported = state.project?.initialReviewMarkers || [];
+  const baselineById = new Map(imported.map(marker => [marker.id, marker]));
+  // Preserve imported markers in storage and round-trip payloads. Only their
+  // presentation changes. Older local edits to an imported note remain visible.
+  const localNotes = state.markers.filter(marker => !sameEpisodeMarker(marker, baselineById.get(marker.id)));
+  renderMarkerListInto(elements.markerList, localNotes);
+  renderMarkerListInto(elements.mobileMarkerList, localNotes);
+  renderEpisodeMarkers(imported);
+  elements.markerCount.textContent = String(localNotes.length);
   renderMarkerSelectionMenu();
   updateMarkerListActiveState({ force: true, follow: false });
 }
 
-function renderMarkerListInto(list) {
+function sameEpisodeMarker(marker, baseline) {
+  return Boolean(baseline) && ["frame", "category", "label", "color", "note", "source"]
+    .every(key => marker[key] === baseline[key]);
+}
+
+function renderEpisodeMarkers(markers) {
+  if (elements.episodeMarkers.hidden && !markers.length) {
+    return;
+  }
+  elements.episodeMarkers.hidden = !markers.length;
+  if (state.episodeMarkerReference === markers) {
+    return;
+  }
+  elements.episodeMarkers.open = false;
+  state.episodeMarkerReference = markers;
+  elements.episodeMarkerCount.textContent = String(markers.length);
+  const rows = markers.map(marker => {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    const timecode = clipFrameTimecode(marker.frame);
+    button.textContent = `${timecode} · ${marker.label || markerCategoryById(marker.category).label}`;
+    button.disabled = !isReady();
+    button.addEventListener("click", () => {
+      if (!isReady() || state.clipRender) return;
+      stopHighlightPreview({ quiet: true });
+      pausePlayback({ silent: true });
+      setTimelineFrame(marker.frame, { syncVideos: true, persist: true });
+      setStatus(`Episode marker at ${timecode} (reference only).`);
+    });
+    li.appendChild(button);
+    if (marker.note) {
+      const note = document.createElement("span");
+      note.textContent = marker.note;
+      li.appendChild(note);
+    }
+    return li;
+  });
+  elements.episodeMarkerList.replaceChildren(...rows);
+}
+
+function renderMarkerListInto(list, markers) {
   if (!list) {
     return;
   }
@@ -2454,7 +2557,7 @@ function renderMarkerListInto(list) {
   if (!state.project) {
     return;
   }
-  for (const marker of state.markers) {
+  for (const marker of markers) {
     const category = markerCategoryById(marker.category);
     const li = document.createElement("li");
     li.dataset.markerId = marker.id;
@@ -2759,6 +2862,7 @@ function renderTimeline() {
     elements.mobileTimelineSlider.value = "0";
     return;
   }
+  updateShortsTimelinePosition();
   const timecode = framesToTimecode((project.timelineStartFrame || 0) + state.timelineFrame, project.fps);
   elements.timecodeLabel.textContent = timecode;
   elements.mobileTimecodeLabel.textContent = timecode;
@@ -4711,14 +4815,19 @@ function deleteFocusedReviewItem() {
 function editFocusedMarker() {
   const marker = state.markers.find(item => item.id === state.selectedMarkerId)
     || activeMarkerAtFrame(state.timelineFrame);
-  if (!marker) {
-    setStatus("There is no marker to edit at this position.", true);
+  if (!marker || sameEpisodeMarker(marker, state.project?.initialReviewMarkers?.find(item => item.id === marker.id))) {
+    setStatus("There is no editable review note at this position.", true);
     return;
   }
   editMarker(marker.id);
 }
 
 function closeActiveOverlay() {
+  if (elements.reviewMore.open) {
+    elements.reviewMore.open = false;
+    elements.reviewMore.querySelector("summary").focus();
+    return true;
+  }
   if (!elements.gestureCoach.classList.contains("hidden")) {
     hideGestureCoach();
     return true;
@@ -4763,7 +4872,8 @@ function handleKeydown(event) {
     event.preventDefault();
     return;
   }
-  if (isTextEntryTarget(event.target)) {
+  if (isTextEntryTarget(event.target) || ((event.code === "Space" || event.key === "Enter")
+      && event.target?.closest?.("button, summary, a[href]"))) {
     return;
   }
   const unmodifiedShortcut = !event.altKey && !event.ctrlKey && !event.metaKey;
@@ -4965,7 +5075,7 @@ function cancelClipCapture(options = {}) {
 function renderClipCapture() {
   const capturing = Number.isInteger(state.clipCaptureInFrame);
   elements.addClipButton.disabled = !isReady() || Boolean(state.clipRender);
-  elements.addClipButton.textContent = capturing ? "Mark Highlight OUT" : "+ Highlight";
+  elements.addClipButton.textContent = capturing ? "End Short" : "Start Short";
   elements.addClipButton.classList.toggle("capturing", capturing);
   elements.previewClipButton.textContent = capturing ? "Mark Highlight OUT" : "Mark Highlight IN";
   elements.previewClipButton.disabled = !isReady() || Boolean(state.clipRender);
@@ -4992,13 +5102,13 @@ function renderHighlightControls() {
   const capturing = Number.isInteger(state.clipCaptureInFrame);
   const previewing = Boolean(state.highlightPreview);
   const count = state.clips.length;
-  elements.highlightCountLabel.textContent = `${count} saved`;
+  elements.highlightCountLabel.textContent = capturing ? "Set the OUT" : "Mark a range";
   elements.markHighlightInButton.disabled = !loaded || Boolean(state.clipRender) || previewing;
   elements.markHighlightOutButton.disabled = !loaded || Boolean(state.clipRender) || previewing || !capturing;
   elements.markHighlightInButton.classList.toggle("active", capturing);
   elements.markHighlightOutButton.classList.toggle("active", capturing);
   elements.previewHighlightsButton.disabled = !loaded || Boolean(state.clipRender) || count === 0;
-  elements.previewHighlightsButton.textContent = previewing ? "Stop Highlights" : "Play Highlights";
+  elements.previewHighlightsButton.textContent = previewing ? "Stop Shorts" : "Play Shorts";
   elements.previewHighlightsButton.classList.toggle("active", previewing);
   elements.highlightPreviewChrome.classList.toggle("hidden", !previewing);
   elements.viewerFrame.classList.toggle("highlight-preview-active", previewing);
@@ -5125,10 +5235,108 @@ function stopHighlightPreview(options = {}) {
   }
 }
 
+function isCompleteShort(clip, lastFrame) {
+  return Number.isInteger(clip.inFrame) && Number.isInteger(clip.outFrame)
+    && clip.inFrame >= 0 && clip.outFrame > clip.inFrame && clip.outFrame <= lastFrame;
+}
+
+function shortTimelineBoundaries(clips, lastFrame) {
+  const grouped = new Map();
+  for (const clip of clips) {
+    if (!isCompleteShort(clip, lastFrame)) continue;
+    for (const [frame, side] of [[clip.inFrame, "IN"], [clip.outFrame, "OUT"]]) {
+      const sides = grouped.get(frame) || new Set();
+      sides.add(side);
+      grouped.set(frame, sides);
+    }
+  }
+  return [...grouped].sort(([a], [b]) => a - b).map(([frame, sides]) => ({
+    frame, label: sides.size === 2 ? "IN/OUT" : sides.has("IN") ? "IN" : "OUT"
+  }));
+}
+
+function nextShortBoundaryIndex(boundaries, frame) {
+  let low = 0;
+  let high = boundaries.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (boundaries[mid].frame <= frame) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function renderShortsRail() {
+  const lastFrame = maxFrame();
+  const clips = state.project ? state.clips.filter(clip => isCompleteShort(clip, lastFrame)) : [];
+  const key = JSON.stringify([state.project?.id, lastFrame, clips.map(({ inFrame, outFrame }) => [inFrame, outFrame])]);
+  if (state.shortsRail.key !== key) {
+    const denominator = Math.max(1, lastFrame);
+    const bounds = shortTimelineBoundaries(clips, lastFrame);
+    const rail = document.createDocumentFragment();
+    const ranges = clips.map(({ inFrame, outFrame }) => {
+      const node = document.createElement("span");
+      node.className = "shorts-rail-range";
+      node.style.left = `${100 * inFrame / denominator}%`;
+      node.style.width = `${100 * (outFrame - inFrame) / denominator}%`;
+      rail.appendChild(node);
+      return { node, inFrame, outFrame };
+    });
+    for (const { frame, label } of bounds) {
+      const tick = document.createElement("span");
+      tick.className = "shorts-rail-tick";
+      tick.classList.toggle("joint", label === "IN/OUT");
+      tick.style.left = `${100 * frame / denominator}%`;
+      rail.appendChild(tick);
+    }
+    elements.shortsRail.replaceChildren(rail);
+    state.shortsRail = { key, boundaries: bounds, ranges, interval: -1 };
+  }
+  updateShortsTimelinePosition();
+}
+
+function updateShortsTimelinePosition() {
+  const rail = state.shortsRail;
+  const interval = nextShortBoundaryIndex(rail.boundaries, state.timelineFrame);
+  if (interval !== rail.interval) {
+    for (const { node, inFrame, outFrame } of rail.ranges) {
+      node.classList.toggle("active", state.timelineFrame >= inFrame && state.timelineFrame < outFrame);
+    }
+    rail.interval = interval;
+  }
+  const next = rail.boundaries[interval];
+  const button = elements.nextShortBoundaryButton;
+  const label = !next && rail.boundaries.length ? "No later IN/OUT" : "Next IN/OUT";
+  if (button.textContent !== label) button.textContent = label;
+  const disabled = !next || !state.project || !isReady() || Boolean(state.clipRender);
+  if (button.disabled !== disabled) button.disabled = disabled;
+  const title = next ? `Go to next Short ${next.label} at ${clipFrameTimecode(next.frame)}`
+    : rail.boundaries.length ? "No Short boundary after the playhead. Scrub back to jump again."
+      : "Save a Short to jump between its boundaries.";
+  if (button.title !== title) button.title = title;
+}
+
+function jumpToNextShortBoundary() {
+  if (!isReady() || state.clipRender) return;
+  const boundaries = state.shortsRail.boundaries;
+  const next = boundaries[nextShortBoundaryIndex(boundaries, state.timelineFrame)];
+  if (!next) return;
+  stopHighlightPreview({ quiet: true });
+  pausePlayback({ silent: true });
+  setTimelineFrame(next.frame, { syncVideos: true, persist: true });
+  const message = `Short ${next.label} · ${clipFrameTimecode(next.frame)}`;
+  elements.shortBoundaryAnnouncement.textContent = message;
+  setStatus(message);
+}
+
 function renderClipList() {
   elements.clipList.innerHTML = "";
+  renderShortsRail();
   elements.clipCount.textContent = String(state.clips.length);
-  elements.clipListSection.classList.toggle("hidden", !state.clips.length && !Number.isInteger(state.clipCaptureInFrame));
+  const hasClips = state.clips.length > 0;
+  const showEmpty = Boolean(state.project && desktopShortsQuery.matches && !hasClips);
+  elements.shortsEmpty.hidden = !showEmpty;
+  elements.clipListSection.classList.toggle("hidden", !showEmpty && !hasClips && !Number.isInteger(state.clipCaptureInFrame));
   const active = state.clips.find(clip => state.timelineFrame >= clip.inFrame && state.timelineFrame < clip.outFrame) || null;
   state.clips.forEach((clip, index) => {
     const item = document.createElement("li");
@@ -5140,7 +5348,7 @@ function renderClipList() {
     button.type = "button";
     button.className = "clip-range-button";
     button.innerHTML = "<strong></strong><span></span><em></em>";
-    button.querySelector("strong").textContent = `Clip ${index + 1}`;
+    button.querySelector("strong").textContent = `Short ${index + 1}`;
     button.querySelector("span").textContent = `${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}`;
     button.querySelector("em").textContent = formatClipDuration((clip.outFrame - clip.inFrame) / state.project.fps);
     button.addEventListener("click", event => handleClipTap(event, clip.id));
@@ -7209,7 +7417,7 @@ function registerServiceWorker() {
     ));
     return;
   }
-  navigator.serviceWorker.register("service-worker.js?v=35")
+  navigator.serviceWorker.register("service-worker.js?v=36")
     .then(registration => registration.update())
     .catch(() => {});
 }

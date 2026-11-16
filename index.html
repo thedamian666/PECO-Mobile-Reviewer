@@ -9,7 +9,7 @@
     <title>PECO Mobile Reviewer</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/peco-mobile-180.png">
-    <link rel="stylesheet" href="styles.css?v=35">
+    <link rel="stylesheet" href="styles.css?v=36">
   </head>
   <body>
     <header class="topbar">
@@ -18,27 +18,24 @@
         <div class="project-line" id="projectLine">No package loaded</div>
         <div class="collaboration-line hidden" id="collaborationLine"></div>
       </div>
-      <div class="top-actions">
-        <div class="toolbar-group reviewer-group" aria-label="Reviewer">
-          <input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer">
-        </div>
-        <div class="toolbar-group" aria-label="Review package">
-          <button class="secondary" id="loadPackageButton" type="button" title="Open a review package">Open</button>
-          <button class="secondary" id="reviewLibraryButton" type="button" title="Open the review inbox">Reviews</button>
-          <button class="secondary" id="reviewSetupButton" type="button" title="Review assignment, workflow, and playback settings" disabled>Setup</button>
-          <a class="secondary workspace-link" href="draft.html" title="Open the portable cut-timeline workspace">Draft</a>
-          <a class="secondary workspace-link" href="promo.html" title="Record and edit a simple wrestling promo">Promo</a>
-        </div>
-        <div class="toolbar-group" aria-label="Review edit">
-          <button class="secondary" id="saveStateButton" type="button" title="Save review state now" disabled>Save</button>
-          <button class="secondary" id="removePackageButton" type="button" title="Remove this review from the device" hidden>Remove</button>
-          <button class="secondary" id="shortcutsButton" type="button" title="Show keyboard shortcuts">Shortcuts</button>
-        </div>
-        <div class="toolbar-group output-group" aria-label="Output">
-          <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected highlights" disabled>Render</button>
-          <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
-          <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
-        </div>
+      <div class="top-actions" aria-label="Review toolbar">
+        <button class="secondary" id="loadPackageButton" type="button" title="Open a review package">Open</button>
+        <button class="secondary" id="reviewLibraryButton" type="button" title="Open the review inbox">Reviews</button>
+        <button class="secondary" id="saveStateButton" type="button" title="Save review state now" disabled>Save</button>
+        <button class="primary" id="exportButton" type="button" disabled>Send Back</button>
+        <button class="primary" id="saveServerButton" type="button" disabled hidden>Save to PC</button>
+        <details class="review-more" id="reviewMore">
+          <summary>More<span aria-hidden="true"> ▾</span></summary>
+          <div class="review-more-items" role="group" aria-label="More review actions">
+            <label class="reviewer-group"><span>Reviewer name</span><input class="reviewer-input" id="reviewerInput" type="text" autocomplete="name" placeholder="Reviewer"></label>
+            <button class="secondary" id="reviewSetupButton" type="button" title="Review assignment, workflow, and playback settings" disabled>Review setup</button>
+            <button class="secondary" id="clipToolsButton" type="button" title="Render the full review, an In/Out range, or selected highlights" disabled>Render</button>
+            <a class="secondary workspace-link" href="draft.html" title="Open the portable cut-timeline workspace">Draft</a>
+            <a class="secondary workspace-link" href="promo.html" title="Record and edit a simple wrestling promo">Promo</a>
+            <button class="secondary" id="shortcutsButton" type="button" title="Show keyboard shortcuts">Keyboard shortcuts</button>
+            <button class="secondary" id="removePackageButton" type="button" title="Remove this review from the device" hidden>Remove local review</button>
+          </div>
+        </details>
       </div>
       <input id="packageInput" type="file" accept=".json,application/json,video/*,.mp4,.mov,.m4v,.webm,.mkv,.pecoreview,.zip,application/zip,application/x-zip-compressed" multiple hidden>
     </header>
@@ -78,7 +75,8 @@
             <small>Tap this guide to close. Use ? to see it again.</small>
           </div>
           <div class="viewer-action-buttons">
-            <button class="viewer-note-button" id="addClipButton" type="button" title="Press once for highlight IN and again for highlight OUT" disabled>+ Highlight</button>
+            <span id="viewerShortCaptureAnchor" hidden></span>
+            <button class="viewer-note-button" id="addClipButton" type="button" title="Tap once to start a Short and again to end it" disabled>Start Short</button>
             <button class="viewer-note-button" id="addNoteButton" type="button" title="Add a review note" disabled>+ Note</button>
           </div>
           <div class="clip-capture-badge hidden" id="clipCaptureBadge">
@@ -101,6 +99,7 @@
       </section>
 
       <aside class="side-panel" aria-label="Review controls">
+        <div class="desktop-shorts-dock" id="desktopShortsDock"></div>
         <div class="panel-head camera-review-only">
           <span>Angles</span>
           <input id="gridToggle" type="checkbox" checked disabled hidden>
@@ -187,23 +186,36 @@
 
       <div class="highlight-controls-row" id="highlightControlsRow" aria-label="Highlight In, Out, and preview controls">
         <div class="highlight-controls-label">
-          <span>Highlights</span>
-          <strong id="highlightCountLabel">0 saved</strong>
+          <span>Shorts tools</span>
+          <strong id="highlightCountLabel">Mark a range</strong>
         </div>
+        <span id="phoneShortCaptureAnchor" hidden></span>
         <button class="secondary" id="markHighlightInButton" type="button" title="Mark highlight IN at the playhead" disabled>Mark IN</button>
         <button class="secondary" id="markHighlightOutButton" type="button" title="Mark highlight OUT and save the range" disabled>Mark OUT</button>
-        <button class="primary" id="previewHighlightsButton" type="button" title="Play saved highlights in timeline order and skip everything between them" disabled>Play Highlights</button>
+        <button class="primary" id="previewHighlightsButton" type="button" title="Play your saved Shorts in timeline order and skip everything between them" disabled>Play Shorts</button>
       </div>
 
-      <section class="clip-list-section hidden" id="clipListSection" aria-label="Saved highlight ranges">
-        <div class="clip-list-label">Highlights <span id="clipCount">0</span></div>
+      <div id="mobileShortsAnchor" hidden></div>
+      <section class="clip-list-section hidden" id="clipListSection" aria-label="Your editable Shorts">
+        <div class="clip-list-label">Your Shorts <span id="clipCount">0</span></div>
+        <p class="shorts-empty" id="shortsEmpty" hidden>Start a Short while the video plays, then tap End Short.</p>
         <ol class="mobile-clip-list" id="clipList"></ol>
       </section>
 
       <div class="mobile-timeline-row" aria-label="Full timeline seeker">
         <span id="mobileTimecodeLabel">00:00:00:00</span>
-        <input class="mobile-timeline-slider" id="mobileTimelineSlider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Full timeline scrubber">
+        <div class="shorts-scrubber">
+          <div class="shorts-rail" id="shortsRail" aria-hidden="true"></div>
+          <input class="mobile-timeline-slider" id="mobileTimelineSlider" type="range" min="0" max="0" step="1" value="0" disabled aria-label="Full timeline scrubber">
+        </div>
+        <button class="secondary next-short-boundary" id="nextShortBoundaryButton" type="button" disabled>Next IN/OUT</button>
+        <span id="shortBoundaryAnnouncement" class="shorts-sr-only" role="status"></span>
       </div>
+      <div id="mobileEpisodeMarkersAnchor" hidden></div>
+      <details class="episode-markers" id="episodeMarkers" hidden>
+        <summary>Episode markers <span id="episodeMarkerCount"></span> <small>Reference only</small></summary>
+        <ol id="episodeMarkerList" aria-label="Read-only markers from this episode"></ol>
+      </details>
 
       <div class="status-line" id="statusContainer">
         <span id="statusLine">Ready.</span>
@@ -416,6 +428,6 @@
     <script src="browser-storage.js"></script>
     <script src="review-workflow.js"></script>
     <script src="vendor/webm-muxer/webm-muxer.js"></script>
-    <script src="app.js?v=35"></script>
+    <script src="app.js?v=36"></script>
   </body>
 </html>
