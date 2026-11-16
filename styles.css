@@ -4723,3 +4723,72 @@ html:-webkit-full-screen {
 @media (max-height: 560px) and (pointer: coarse) and (orientation: landscape) {
   .highlight-controls-row { height: auto; }
 }
+
+/* Per-Short actions stay visible without relying on a touch long press. */
+.short-list-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; align-content: center; }
+.short-undo-button[hidden] { display: none; }
+.mobile-clip-list li:not(.short-out-draft) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 3px;
+}
+.mobile-clip-list .clip-range-button,
+.mobile-clip-list .short-row-play,
+.mobile-clip-list .short-actions-button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.mobile-clip-list .short-row-play,
+.mobile-clip-list .short-actions-button,
+.short-undo-button {
+  min-width: 32px;
+  min-height: 34px;
+  padding: 3px 5px;
+  font-size: 11px;
+}
+.mobile-clip-list .short-actions-button { font-size: 16px; }
+.short-out-draft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px dashed var(--accent-strong);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+}
+.short-out-draft button { white-space: nowrap; padding: 4px 6px; }
+.short-boundary-editor {
+  width: min(390px, calc(100vw - 26px));
+  max-height: calc(100dvh - 26px);
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #161d16;
+  color: var(--text);
+  padding: 14px;
+}
+.short-boundary-editor::backdrop { background: #000a; }
+.short-boundary-editor form { display: grid; gap: 8px; }
+.short-boundary-editor h2 { font-size: 16px; margin: 0; }
+.short-boundary-editor p { margin: 0; color: var(--muted); font-size: 12px; }
+.short-boundary-editor label { font-size: 12px; font-weight: 700; }
+.short-boundary-input-row { display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; gap: 6px; }
+.short-boundary-input-row input {
+  min-width: 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.short-boundary-input-row button, .short-boundary-editor .menu-action-row button { min-height: 36px; }
+.short-boundary-error { min-height: 1em; color: #ffc09d; font-size: 12px; }
+
+@media (max-width: 760px), (max-height: 560px) and (pointer: coarse) {
+  .mobile-clip-list .short-row-play, .mobile-clip-list .short-actions-button,
+  .short-undo-button { min-width: 42px; min-height: 42px; }
+  .short-boundary-input-row button, .short-boundary-editor .menu-action-row button { min-height: 44px; }
+}

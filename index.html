@@ -9,7 +9,7 @@
     <title>PECO Mobile Reviewer</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/peco-mobile-180.png">
-    <link rel="stylesheet" href="styles.css?v=37">
+    <link rel="stylesheet" href="styles.css?v=38">
   </head>
   <body>
     <header class="topbar">
@@ -197,7 +197,10 @@
 
       <div id="mobileShortsAnchor" hidden></div>
       <section class="clip-list-section hidden" id="clipListSection" aria-label="Your editable Shorts">
-        <div class="clip-list-label">Your Shorts <span id="clipCount">0</span></div>
+        <div class="short-list-heading">
+          <div class="clip-list-label">Your Shorts <span id="clipCount">0</span></div>
+          <button class="secondary short-undo-button" id="undoShortButton" type="button" hidden disabled>Undo</button>
+        </div>
         <p class="shorts-empty" id="shortsEmpty" hidden>Start a Short while the video plays, then tap End Short.</p>
         <ol class="mobile-clip-list" id="clipList"></ol>
       </section>
@@ -274,6 +277,30 @@
         <button class="secondary danger-action" id="cancelClipRenderButton" type="button" hidden>Cancel Render</button>
       </div>
     </div>
+
+    <dialog class="short-boundary-editor" id="shortBoundaryEditor" aria-labelledby="shortBoundaryTitle">
+      <form id="shortBoundaryForm">
+        <h2 id="shortBoundaryTitle">Edit Short boundaries</h2>
+        <p>Enter exact timecodes or nudge one frame at a time. OUT is the first frame not included.</p>
+        <label for="shortBoundaryIn">IN</label>
+        <div class="short-boundary-input-row">
+          <button class="secondary" type="button" data-short-nudge="in" data-delta="-1" aria-label="Move IN back one frame">−1f</button>
+          <input id="shortBoundaryIn" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="HH:MM:SS:FF">
+          <button class="secondary" type="button" data-short-nudge="in" data-delta="1" aria-label="Move IN forward one frame">+1f</button>
+        </div>
+        <label for="shortBoundaryOut">OUT</label>
+        <div class="short-boundary-input-row">
+          <button class="secondary" type="button" data-short-nudge="out" data-delta="-1" aria-label="Move OUT back one frame">−1f</button>
+          <input id="shortBoundaryOut" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="HH:MM:SS:FF">
+          <button class="secondary" type="button" data-short-nudge="out" data-delta="1" aria-label="Move OUT forward one frame">+1f</button>
+        </div>
+        <div id="shortBoundaryError" class="short-boundary-error" role="alert"></div>
+        <div class="menu-action-row">
+          <button class="secondary" id="cancelShortBoundaryButton" type="button">Cancel</button>
+          <button class="primary" type="submit">Save boundaries</button>
+        </div>
+      </form>
+    </dialog>
 
     <div class="preview-action-menu hidden" id="previewActionMenu" role="dialog" aria-live="polite" aria-label="Add review marker">
       <div class="selection-summary" id="previewActionSummary">Add note</div>
@@ -431,6 +458,6 @@
     <script src="browser-storage.js"></script>
     <script src="review-workflow.js"></script>
     <script src="vendor/webm-muxer/webm-muxer.js"></script>
-    <script src="app.js?v=37"></script>
+    <script src="app.js?v=38"></script>
   </body>
 </html>

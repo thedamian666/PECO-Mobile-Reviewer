@@ -1,9 +1,9 @@
 {
   "app": "PECO Mobile Reviewer",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "notes": [
-    "Jump to the previous or next saved Short IN or OUT without leaving the timeline.",
-    "Desktop places the editable Shorts beside the video, with secondary options in More. Episode markers are labeled separately as references."
+    "Play or open actions for each Short without long-pressing.",
+    "Edit both timecodes, nudge a frame at a time, or clear OUT and re-mark the end without losing the Short."
   ],
   "media_included": false
 }

@@ -1,11 +1,11 @@
 const PROJECT_SCHEMA = "peco.mobile_multicam_project.v1";
 const CUTS_SCHEMA = "peco.mobile_multicam_decisions.v1";
 const NOTES_SCHEMA = "peco.mobile_review_notes.v1";
-const APP_VERSION = "0.6.5";
-const APP_VERSION_CODE = 37;
+const APP_VERSION = "0.6.6";
+const APP_VERSION_CODE = 38;
 const APP_PATCH_NOTES = Object.freeze([
-  "Jump forward or backward between your Shorts’ IN and OUT points.",
-  "Use a compact toolbar and side-by-side Shorts on desktop, with simpler controls on phones."
+  "Play or open actions for each Short without long-pressing.",
+  "Edit timecodes, nudge by a frame, or clear OUT and re-mark the end."
 ]);
 const APP_BUILD_ID = `${APP_VERSION}-${APP_VERSION_CODE}`;
 const APP_BUILD_STORAGE_KEY = "peco_mobile_reviewer_app_build";
@@ -223,6 +223,13 @@ const elements = {
   episodeMarkerCount: document.getElementById("episodeMarkerCount"),
   clipListSection: document.getElementById("clipListSection"),
   clipList: document.getElementById("clipList"),
+  undoShortButton: document.getElementById("undoShortButton"),
+  shortBoundaryEditor: document.getElementById("shortBoundaryEditor"),
+  shortBoundaryForm: document.getElementById("shortBoundaryForm"),
+  shortBoundaryIn: document.getElementById("shortBoundaryIn"),
+  shortBoundaryOut: document.getElementById("shortBoundaryOut"),
+  shortBoundaryError: document.getElementById("shortBoundaryError"),
+  cancelShortBoundaryButton: document.getElementById("cancelShortBoundaryButton"),
   clipCount: document.getElementById("clipCount"),
   clipSelectionMenu: document.getElementById("clipSelectionMenu"),
   clipSelectionSummary: document.getElementById("clipSelectionSummary"),
@@ -323,6 +330,9 @@ const state = {
   shuttleSpeed: 0,
   jogDrag: null,
   clipCaptureInFrame: null,
+  shortOutDraft: null,
+  shortBoundaryEditorId: null,
+  shortBoundaryEditorTrigger: null,
   clips: [],
   shortsRail: { key: null, boundaries: [], ranges: [], interval: -1 },
   episodeMarkerReference: null,
@@ -334,6 +344,7 @@ const state = {
   suppressClipClickId: null,
   focusedEditType: "decision",
   contextMenuTarget: null,
+  contextMenuTrigger: null,
   exportInFrame: 0,
   exportOutFrame: null,
   renderMode: "full",
@@ -435,7 +446,21 @@ elements.addClipButton.addEventListener("click", event => {
 elements.cancelClipCaptureButton.addEventListener("pointerdown", event => event.stopPropagation());
 elements.cancelClipCaptureButton.addEventListener("click", event => {
   event.stopPropagation();
-  cancelClipCapture({ status: "Highlight IN canceled." });
+  cancelClipCapture({ status: "Short capture canceled." });
+});
+elements.undoShortButton.addEventListener("click", () => {
+  if (state.shortOutDraft || state.undoStack.at(-1)?.kind === "clip") undoDecision();
+});
+elements.shortBoundaryForm.addEventListener("submit", saveShortBoundaryEditor);
+for (const button of elements.shortBoundaryForm.querySelectorAll("[data-short-nudge]")) {
+  button.addEventListener("click", () => nudgeShortBoundaryEditor(button.dataset.shortNudge, Number(button.dataset.delta)));
+}
+elements.cancelShortBoundaryButton.addEventListener("click", () => elements.shortBoundaryEditor.close());
+elements.shortBoundaryEditor.addEventListener("close", () => {
+  const trigger = state.shortBoundaryEditorTrigger;
+  state.shortBoundaryEditorId = null;
+  state.shortBoundaryEditorTrigger = null;
+  if (trigger?.isConnected) trigger.focus();
 });
 elements.markHighlightInButton.addEventListener("click", markHighlightInAtPlayhead);
 elements.markHighlightOutButton.addEventListener("click", markHighlightOutAtPlayhead);
@@ -1051,6 +1076,8 @@ function resetProject(options = {}) {
   state.lastPerformanceSampleMs = 0;
   state.pausedForVisibility = false;
   state.clipCaptureInFrame = null;
+  state.shortOutDraft = null;
+  if (elements.shortBoundaryEditor.open) elements.shortBoundaryEditor.close();
   state.clips = [];
   state.highlightPreview = null;
   state.clipSelectionMode = false;
@@ -2979,6 +3006,7 @@ function pushDecisionHistory(action) {
     label: action.label || "camera decision edit"
   });
   state.redoStack = [];
+  renderShortUndoState();
 }
 
 function cloneMarker(marker) {
@@ -3011,6 +3039,7 @@ function pushMarkerHistory(action) {
     label: action.label || "marker edit"
   });
   state.redoStack = [];
+  renderShortUndoState();
 }
 
 function pushClipHistory(action) {
@@ -3120,6 +3149,10 @@ function compactDecisions() {
 }
 
 function undoDecision() {
+  if (state.shortOutDraft) {
+    cancelClipCapture({ status: "Restored the Short’s previous range." });
+    return;
+  }
   if (!isReady() || state.undoStack.length === 0) {
     setStatus("No phone edits to undo.", true);
     renderAll();
@@ -4507,6 +4540,9 @@ function closeShortcutMenu() {
 }
 
 function closeContextMenu() {
+  const trigger = state.contextMenuTrigger;
+  state.contextMenuTrigger = null;
+  if (trigger?.isConnected) trigger.setAttribute("aria-expanded", "false");
   elements.contextMenu.classList.add("hidden");
   elements.contextMenuActions.innerHTML = "";
   state.contextMenuTarget = null;
@@ -4517,6 +4553,10 @@ function openContextMenu(event, options = {}) {
   event.stopPropagation();
   closeContextMenu();
   state.contextMenuTarget = options.target || null;
+  if (options.anchor?.isConnected) {
+    state.contextMenuTrigger = options.anchor;
+    options.anchor.setAttribute("aria-expanded", "true");
+  }
   elements.contextMenuTitle.textContent = options.title || "Actions";
   elements.contextMenuDetail.textContent = options.detail || "";
   for (const action of options.actions || []) {
@@ -4536,8 +4576,9 @@ function openContextMenu(event, options = {}) {
   elements.contextMenu.style.top = "0px";
   elements.contextMenu.classList.remove("hidden");
   const bounds = elements.contextMenu.getBoundingClientRect();
-  const left = Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8));
-  const top = Math.max(8, Math.min(event.clientY, window.innerHeight - bounds.height - 8));
+  const anchor = options.anchor?.getBoundingClientRect();
+  const left = Math.max(8, Math.min(anchor?.left ?? event.clientX, window.innerWidth - bounds.width - 8));
+  const top = Math.max(8, Math.min(anchor?.bottom ?? event.clientY, window.innerHeight - bounds.height - 8));
   elements.contextMenu.style.left = `${left}px`;
   elements.contextMenu.style.top = `${top}px`;
   elements.contextMenu.querySelector("button:not(:disabled)")?.focus();
@@ -4715,29 +4756,137 @@ function deleteMarkerById(markerId) {
   deleteSelectedMarkers();
 }
 
-function openClipContextMenu(event, clipId) {
+function seekShortBoundary(clipId, side) {
   const clip = state.clips.find(item => item.id === clipId);
-  if (!clip) {
-    return;
-  }
+  if (!clip) return;
   state.selectedClipId = clipId;
   state.selectedMarkerId = null;
   state.focusedEditType = "clip";
+  pausePlayback({ silent: true });
+  const frame = side === "in" ? clip.inFrame : clip.outFrame;
+  setTimelineFrame(frame, { syncVideos: true, persist: true });
   renderClipList();
+  setStatus(`Short ${side.toUpperCase()} · ${clipFrameTimecode(frame)}`);
+}
+
+function openClipContextMenu(event, clipId, anchor = null) {
+  const clip = state.clips.find(item => item.id === clipId);
+  if (!clip) return;
+  state.selectedClipId = clipId;
+  state.selectedMarkerId = null;
+  state.focusedEditType = "clip";
+  for (const row of elements.clipList.children) row.classList.toggle("selected", row.dataset.clipId === clipId);
   const detail = `${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)} • ${formatClipDuration((clip.outFrame - clip.inFrame) / state.project.fps)}`;
   openContextMenu(event, {
+    anchor,
     target: { type: "clip", clipId },
-    title: "Saved Clip",
+    title: "Short actions",
     detail,
     actions: [
-      { label: "Go to Clip IN", handler: () => handleClipTap({ preventDefault() {} }, clipId) },
+      { label: "Edit IN / OUT", handler: () => openShortBoundaryEditor(clipId, anchor) },
+      { label: "Go to IN", handler: () => seekShortBoundary(clipId, "in") },
+      { label: "Go to OUT", handler: () => seekShortBoundary(clipId, "out") },
+      { label: "Clear OUT and re-mark", disabled: Number.isInteger(state.clipCaptureInFrame), handler: () => startShortOutDraft(clipId) },
+      { label: "Select for bulk actions", handler: () => enterClipSelection(clipId) },
       { label: "Set IN to Playhead", disabled: state.timelineFrame >= clip.outFrame, handler: () => setClipBoundaryAtPlayhead(clipId, "in") },
       { label: "Set OUT to Playhead", disabled: state.timelineFrame <= clip.inFrame, handler: () => setClipBoundaryAtPlayhead(clipId, "out") },
-      { label: "Render This Clip", handler: () => renderSingleClip(clipId) },
-      { label: "Copy Clip Details", handler: () => copyContextDetails(detail) },
-      { label: "Delete Clip", danger: true, handler: () => deleteClipById(clipId) }
+      { label: "Render This Short", handler: () => renderSingleClip(clipId) },
+      { label: "Copy Short Details", handler: () => copyContextDetails(detail) },
+      { label: "Delete Short", danger: true, handler: () => deleteClipById(clipId) }
     ]
   });
+}
+
+// Use the same non-drop labels the reviewer already displays. Semicolons
+// denote a different timecode convention and are deliberately rejected.
+function strictShortFrame(value, fps, timelineStart, lastFrame) {
+  const match = /^([0-9]{2,8}):([0-5][0-9]):([0-5][0-9]):([0-9]{2,3})$/.exec(String(value).trim());
+  if (!match) return null;
+  const rate = Math.max(1, Math.round(fps));
+  const [, hh, mm, ss, ff] = match.map(Number);
+  if (ff >= rate) return null;
+  const result = (((hh * 60 + mm) * 60 + ss) * rate + ff) - timelineStart;
+  return Number.isSafeInteger(result) && result >= 0 && result <= lastFrame ? result : null;
+}
+
+function parseShortBoundaryInput(input) {
+  return strictShortFrame(input.value, state.project.fps, state.project.timelineStartFrame || 0, maxFrame());
+}
+
+function openShortBoundaryEditor(clipId, trigger) {
+  const clip = state.clips.find(item => item.id === clipId);
+  if (!clip || !isReady() || state.clipRender || elements.shortBoundaryEditor.open) return;
+  pausePlayback({ silent: true });
+  state.shortBoundaryEditorId = clipId;
+  state.shortBoundaryEditorTrigger = trigger;
+  elements.shortBoundaryIn.value = clipFrameTimecode(clip.inFrame);
+  elements.shortBoundaryOut.value = clipFrameTimecode(clip.outFrame);
+  elements.shortBoundaryError.textContent = "";
+  elements.shortBoundaryEditor.showModal();
+  elements.shortBoundaryIn.focus();
+}
+
+function nudgeShortBoundaryEditor(side, delta) {
+  const input = side === "in" ? elements.shortBoundaryIn : elements.shortBoundaryOut;
+  const frame = parseShortBoundaryInput(input);
+  if (frame === null || ![1, -1].includes(delta)) {
+    elements.shortBoundaryError.textContent = "Enter a valid timeline timecode before nudging.";
+    return;
+  }
+  const edited = frame + delta;
+  if (edited < 0 || edited > maxFrame()) {
+    elements.shortBoundaryError.textContent = "That nudge would pass the start or end of the timeline.";
+    return;
+  }
+  input.value = clipFrameTimecode(edited);
+  elements.shortBoundaryError.textContent = "";
+}
+
+function saveShortBoundaryEditor(event) {
+  event.preventDefault();
+  const clip = state.clips.find(item => item.id === state.shortBoundaryEditorId);
+  if (!clip || !state.project) return;
+  const inFrame = parseShortBoundaryInput(elements.shortBoundaryIn);
+  const outFrame = parseShortBoundaryInput(elements.shortBoundaryOut);
+  if (inFrame === null || outFrame === null || outFrame <= inFrame) {
+    elements.shortBoundaryError.textContent = inFrame === null || outFrame === null
+      ? "Use an in-range timeline timecode (HH:MM:SS:FF)."
+      : "OUT must be after IN.";
+    return;
+  }
+  if (clip.inFrame !== inFrame || clip.outFrame !== outFrame) {
+    const before = cloneClip(clip);
+    Object.assign(clip, { inFrame, outFrame });
+    pushClipHistory({ before: [before], after: [clip], label: "Short boundaries" });
+    state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+    scheduleProjectStateAutosave();
+  }
+  elements.shortBoundaryEditor.close();
+  renderClipList();
+  setStatus(`Updated Short: ${clipFrameTimecode(inFrame)} to ${clipFrameTimecode(outFrame)}.`);
+  elements.clipList.querySelector(`[data-clip-id="${CSS.escape(clip.id)}"] .short-actions-button`)?.focus();
+}
+
+function startShortOutDraft(clipId) {
+  const clip = state.clips.find(item => item.id === clipId);
+  if (!clip || !isReady() || state.clipRender || Number.isInteger(state.clipCaptureInFrame)) return;
+  pausePlayback({ silent: true });
+  state.shortOutDraft = cloneClip(clip);
+  state.clips = state.clips.filter(item => item.id !== clipId);
+  state.clipCaptureInFrame = clip.inFrame;
+  state.selectedClipId = null;
+  state.selectedClipIds.delete(clipId);
+  if (!state.selectedClipIds.size) exitClipSelection();
+  setTimelineFrame(clip.inFrame, { syncVideos: true, persist: false });
+  saveProjectState();
+  renderAll();
+  setStatus("OUT cleared. Play to the new end and tap End Short, or restore the previous range.");
+}
+
+function normalizeShortOutDraft(saved, lastFrame) {
+  if (!saved || typeof saved.id !== "string" || !saved.id || !Number.isInteger(saved.pendingInFrame) || saved.pendingInFrame < 0
+      || saved.pendingInFrame >= lastFrame || !isCompleteShort(saved, lastFrame)) return null;
+  return { clip: cloneClip(saved), pendingInFrame: saved.pendingInFrame };
 }
 
 function setClipBoundaryAtPlayhead(clipId, side) {
@@ -4839,7 +4988,9 @@ function closeActiveOverlay() {
     return true;
   }
   if (!elements.contextMenu.classList.contains("hidden")) {
+    const trigger = state.contextMenuTrigger;
     closeContextMenu();
+    if (trigger?.isConnected) trigger.focus();
     return true;
   }
   if (!elements.shortcutMenu.classList.contains("hidden")) {
@@ -4870,6 +5021,7 @@ function isTextEntryTarget(target) {
 }
 
 function handleKeydown(event) {
+  if (elements.shortBoundaryEditor.open) return;
   if (event.key === "Escape" && closeActiveOverlay()) {
     event.preventDefault();
     return;
@@ -5026,7 +5178,12 @@ function markHighlightInAtPlayhead() {
   }
   exitClipSelection();
   const moved = Number.isInteger(state.clipCaptureInFrame);
+  if (state.shortOutDraft && state.timelineFrame >= maxFrame()) {
+    setStatus("Leave at least one frame after IN so you can mark OUT.", true);
+    return;
+  }
   state.clipCaptureInFrame = state.timelineFrame;
+  if (state.shortOutDraft) saveProjectState();
   renderClipCapture();
   renderClipList();
   renderHighlightControls();
@@ -5046,19 +5203,21 @@ function markHighlightOutAtPlayhead() {
     setStatus("Highlight OUT must be after highlight IN.", true);
     return;
   }
+  const priorClip = state.shortOutDraft;
   const clip = {
-    id: `clip_${cryptoRandomId()}`,
+    id: priorClip?.id ?? `clip_${cryptoRandomId()}`,
     inFrame: state.clipCaptureInFrame,
     outFrame,
-    createdAt: new Date().toISOString()
+    createdAt: priorClip?.createdAt ?? new Date().toISOString()
   };
-  pushClipHistory({ before: [], after: [clip], label: "clip addition" });
+  pushClipHistory({ before: priorClip ? [priorClip] : [], after: [clip], label: priorClip ? "Short range edit" : "Short addition" });
+  state.shortOutDraft = null;
   state.clips.push(clip);
   state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
   state.clipCaptureInFrame = null;
-  scheduleProjectStateAutosave();
+  if (priorClip) saveProjectState(); else scheduleProjectStateAutosave();
   renderAll();
-  setStatus(`Saved highlight ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
+  setStatus(`Saved Short ${clipFrameTimecode(clip.inFrame)} to ${clipFrameTimecode(clip.outFrame)}.`);
 }
 
 function cancelClipCapture(options = {}) {
@@ -5066,10 +5225,19 @@ function cancelClipCapture(options = {}) {
     return;
   }
   state.clipCaptureInFrame = null;
+  const prior = state.shortOutDraft;
+  state.shortOutDraft = null;
+  if (prior) {
+    state.clips.push(prior);
+    state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+    saveProjectState();
+  }
   renderClipCapture();
   renderClipList();
   renderHighlightControls();
-  if (options.status) {
+  if (prior) {
+    setStatus("Restored the Short’s previous range.");
+  } else if (options.status) {
     setStatus(options.status);
   }
 }
@@ -5138,11 +5306,11 @@ function toggleHighlightPreview() {
   void startHighlightPreview();
 }
 
-async function startHighlightPreview() {
-  if (!isReady() || state.clipRender) {
+async function startHighlightPreview(clipId = null) {
+  if (!isReady() || state.clipRender || state.highlightPreview?.transitioning) {
     return;
   }
-  const segments = highlightPreviewSegments();
+  const segments = highlightPreviewSegments().filter(segment => clipId == null || segment.id === clipId);
   if (!segments.length) {
     setStatus("Mark at least one highlight IN and OUT before previewing.", true);
     return;
@@ -5150,6 +5318,7 @@ async function startHighlightPreview() {
   pausePlayback({ silent: true });
   state.highlightPreview = {
     segments,
+    single: clipId != null,
     segmentIndex: 0,
     transitioning: false
   };
@@ -5175,7 +5344,7 @@ async function playHighlightPreviewSegment(index) {
     renderHighlightControls();
     await playSyncedProgramVideos();
     if (state.highlightPreview !== preview) {
-      pausePlayback({ silent: true });
+      if (!state.highlightPreview) pausePlayback({ silent: true });
       return;
     }
     const audio = ensureAudioMaster();
@@ -5189,7 +5358,7 @@ async function playHighlightPreviewSegment(index) {
     }
     await Promise.all(postPlaySeeks);
     if (state.highlightPreview !== preview) {
-      pausePlayback({ silent: true });
+      if (!state.highlightPreview) pausePlayback({ silent: true });
       return;
     }
     preview.transitioning = false;
@@ -5216,6 +5385,9 @@ async function advanceHighlightPreviewSegment() {
   const nextIndex = preview.segmentIndex + 1;
   if (nextIndex >= preview.segments.length) {
     state.highlightPreview = null;
+    if (preview.single) {
+      setTimelineFrame(preview.segments[0].outFrame - 1, { syncVideos: true, persist: true });
+    }
     renderHighlightControls();
     scheduleProjectStateAutosave();
     setStatus(`Highlights preview complete. Played ${preview.segments.length} highlight${preview.segments.length === 1 ? "" : "s"}.`);
@@ -5350,8 +5522,10 @@ function renderClipList() {
   elements.clipList.innerHTML = "";
   renderShortsRail();
   elements.clipCount.textContent = String(state.clips.length);
+  renderShortUndoState();
   const hasClips = state.clips.length > 0;
-  const showEmpty = Boolean(state.project && desktopShortsQuery.matches && !hasClips);
+  const showUndo = state.undoStack.at(-1)?.kind === "clip";
+  const showEmpty = Boolean(state.project && (desktopShortsQuery.matches || showUndo) && !hasClips && !state.shortOutDraft);
   elements.shortsEmpty.hidden = !showEmpty;
   elements.clipListSection.classList.toggle("hidden", !showEmpty && !hasClips && !Number.isInteger(state.clipCaptureInFrame));
   const active = state.clips.find(clip => state.timelineFrame >= clip.inFrame && state.timelineFrame < clip.outFrame) || null;
@@ -5371,10 +5545,43 @@ function renderClipList() {
     button.addEventListener("click", event => handleClipTap(event, clip.id));
     button.addEventListener("pointerdown", event => startClipLongPress(event, clip.id));
     button.addEventListener("contextmenu", event => openClipContextMenu(event, clip.id));
-    item.appendChild(button);
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "secondary short-row-play";
+    play.textContent = "Play";
+    play.title = play.ariaLabel = `Play Short ${index + 1}`;
+    play.addEventListener("click", () => { void startHighlightPreview(clip.id); });
+    const actions = document.createElement("button");
+    actions.type = "button";
+    actions.className = "secondary short-actions-button";
+    actions.textContent = "⋯";
+    actions.title = actions.ariaLabel = `Actions for Short ${index + 1}`;
+    actions.setAttribute("aria-haspopup", "menu");
+    actions.setAttribute("aria-expanded", "false");
+    actions.addEventListener("click", event => openClipContextMenu(event, clip.id, actions));
+    item.append(button, play, actions);
     elements.clipList.appendChild(item);
   });
+  if (state.shortOutDraft) {
+    const item = document.createElement("li");
+    item.className = "short-out-draft";
+    const text = document.createElement("span");
+    text.textContent = `Draft · IN ${clipFrameTimecode(state.clipCaptureInFrame)} · Not sent until OUT is set`;
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "secondary";
+    cancel.textContent = "Restore prior range";
+    cancel.addEventListener("click", () => cancelClipCapture());
+    item.append(text, cancel);
+    elements.clipList.appendChild(item);
+  }
   renderClipSelectionMenu();
+}
+
+function renderShortUndoState() {
+  const undo = Boolean(state.shortOutDraft || state.undoStack.at(-1)?.kind === "clip");
+  elements.undoShortButton.disabled = !undo;
+  elements.undoShortButton.hidden = !undo;
 }
 
 function updateClipListActiveState() {
@@ -7225,6 +7432,9 @@ function buildProjectStatePayload() {
           out_frame: state.exportOutFrame
         }
       : null,
+    short_out_draft: state.shortOutDraft
+      ? { ...cloneClip(state.shortOutDraft), pendingInFrame: state.clipCaptureInFrame }
+      : null,
     clip_ranges: state.clips.map(clip => ({
       clip_id: clip.id,
       in_frame: clip.inFrame,
@@ -7397,6 +7607,11 @@ function restoreProjectState(project) {
       });
     }
     state.clips.sort((a, b) => a.inFrame - b.inFrame || a.outFrame - b.outFrame || a.id.localeCompare(b.id));
+    const draft = normalizeShortOutDraft(saved.short_out_draft, maxFrame());
+    if (draft && !state.clips.some(clip => clip.id === draft.clip.id)) {
+      state.shortOutDraft = draft.clip;
+      state.clipCaptureInFrame = draft.pendingInFrame;
+    }
     const savedRange = saved.export_range || saved.clip_range;
     const savedClipIn = Math.round(Number(savedRange?.in_frame));
     const savedClipOut = Math.round(Number(savedRange?.out_frame));
@@ -7434,7 +7649,7 @@ function registerServiceWorker() {
     ));
     return;
   }
-  navigator.serviceWorker.register("service-worker.js?v=37")
+  navigator.serviceWorker.register("service-worker.js?v=38")
     .then(registration => registration.update())
     .catch(() => {});
 }
